@@ -837,6 +837,12 @@ async function animateThinkingSteps(
   userQuery?: string,
   signal?: AbortSignal
 ): Promise<boolean> {
+  // Fast-path: Skip API check instantly for very short/simple messages like "hi"
+  const q = (userQuery || '').trim()
+  if (q.length < 20 && !q.includes('?')) {
+    return false
+  }
+
   const topic = extractTopic(userQuery)
   
   // Start with just "Understanding intent"

@@ -612,10 +612,13 @@ function makeWebSearchSteps(): ResearchStep[] {
   return WEB_SEARCH_STEPS.map(s => ({ ...s, status: 'pending' as const }))
 }
 
-function makeThinkingSteps(): ResearchStep[] {
+function makeThinkingSteps(userQuery?: string): ResearchStep[] {
+  // Truncate query for the label if it's too long
+  const queryStr = userQuery ? userQuery.slice(0, 30) + (userQuery.length > 30 ? '...' : '') : 'user intent'
+  
   // Use thinking module to create dynamic steps
   const { steps } = createThinkingSession('temp', [
-    'Analyzing query complexity...',
+    `Analyzing user intent for: "${queryStr}"`,
     'Breaking down the problem...',
     'Formulating approach...',
     'Processing information...',
@@ -821,10 +824,19 @@ async function animateThinkingSteps(
   convId: string,
   assistantId: string,
   updateSteps: (convId: string, assistantId: string, steps: ResearchStep[]) => void,
+  userQuery?: string,
   signal?: AbortSignal
 ): Promise<void> {
+  const queryStr = userQuery ? userQuery.slice(0, 30) + (userQuery.length > 30 ? '...' : '') : 'user intent'
+  
   // Use the new thinking module
-  const { sessionId, steps } = createThinkingSession(assistantId)
+  const { sessionId, steps } = createThinkingSession(assistantId, [
+    `Analyzing user intent for: "${queryStr}"`,
+    'Breaking down the problem...',
+    'Formulating approach...',
+    'Processing information...',
+    'Synthesizing response...',
+  ])
   
   // Update message with thinking steps from the module
   updateSteps(convId, assistantId, steps)
@@ -1840,7 +1852,7 @@ export default function Home() {
           : webSearch
           ? makeWebSearchSteps()
           : undefined,
-        thinkingSteps: isVeryHard ? makeThinkingSteps() : undefined,
+        thinkingSteps: isVeryHard ? makeThinkingSteps(text) : undefined,
         isDeepResearch: deepResearch,
         isWebSearch: webSearch ?? false,
         timestamp: Date.now(),
@@ -1881,6 +1893,7 @@ export default function Home() {
             convId,
             assistantId,
             updateThinkingSteps,
+            text,
             ctrl.signal
           )
         } else if (shouldThink && !deepResearch) {

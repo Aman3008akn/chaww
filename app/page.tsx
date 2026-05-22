@@ -18,6 +18,8 @@ import ConversationAnalytics from '@/components/ConversationAnalytics'
 import TeamPanel from '@/components/TeamPanel'
 import NotebookPanel from '@/components/NotebookPanel'
 import PremiumPlansModal from '@/components/PremiumPlansModal'
+import SettingsModal from '@/components/SettingsModal'
+import ProfileModal from '@/components/ProfileModal'
 import NotebookFeaturePopup from '@/components/NotebookFeaturePopup'
 import ModelSelector, { ModelType } from '@/components/ModelSelector'
 import { useSession } from 'next-auth/react'
@@ -1539,6 +1541,8 @@ export default function Home() {
   const [showTeams, setShowTeams] = useState(false)
   const [showNotebooks, setShowNotebooks] = useState(false)
   const [showPremiumModal, setShowPremiumModal] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [showProfileModal, setShowProfileModal] = useState(false)
   const [notebookSources, setNotebookSources] = useState<NotebookSource[]>([])
   const [selectedModel, setSelectedModel] = useState<ModelType>('nexus-4')
 
@@ -2374,8 +2378,8 @@ export default function Home() {
             onToggleNotebook={() => setShowNotebooks(!showNotebooks)}
             onTogglePremium={() => setShowPremiumModal(true)}
             onToggleWorkspace={() => setShowTeams(true)}
-            onToggleSettings={() => notify({ type: 'info', message: '⚙️ Settings panel coming soon in the next update!' })}
-            onToggleProfile={() => notify({ type: 'info', message: '👤 User profile management coming soon!' })}
+            onToggleSettings={() => setShowSettingsModal(true)}
+            onToggleProfile={() => setShowProfileModal(true)}
           />
 
           {/* Main content */}
@@ -2448,6 +2452,18 @@ export default function Home() {
           <PremiumPlansModal 
             isOpen={showPremiumModal} 
             onClose={() => setShowPremiumModal(false)} 
+          />
+
+          {/* Settings Modal */}
+          <SettingsModal 
+            isOpen={showSettingsModal} 
+            onClose={() => setShowSettingsModal(false)} 
+          />
+
+          {/* Profile Modal */}
+          <ProfileModal 
+            isOpen={showProfileModal} 
+            onClose={() => setShowProfileModal(false)} 
           />
 
           {/* Team Panel */}

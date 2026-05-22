@@ -1830,6 +1830,11 @@ export default function Home() {
         setShowPremiumModal(true)
         return
       }
+
+      // Random upsell pop-up for free users (approx 20% chance on normal messages)
+      if (!isPremiumUser && Math.random() < 0.20) {
+        setShowPremiumModal(true)
+      }
       
       if (isImageRequest) {
         const cleanPrompt = text

@@ -6,6 +6,25 @@ import { Check, X, Sparkles, Zap, Crown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useSession } from 'next-auth/react'
 
+const loadRazorpayScript = () => {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve(false)
+      return
+    }
+    if ((window as any).Razorpay) {
+      resolve(true)
+      return
+    }
+    const script = document.createElement('script')
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+    script.async = true
+    script.onload = () => resolve(true)
+    script.onerror = () => resolve(false)
+    document.body.appendChild(script)
+  })
+}
+
 interface Props {
   isOpen: boolean
   onClose: () => void
@@ -195,32 +214,113 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
 
                             if (!session?.user && !guestId) {
                               alert('Please sign in or start a guest session to upgrade.')
+                              setLoading(false)
                               return
                             }
 
-                            const res = await fetch('/api/upgrade', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ plan: rawPlanName, guestId })
-                            })
+                            // If downgrading to Free, use the simple mockup API
+                            if (rawPlanName === 'free') {
+                              const res = await fetch('/api/upgrade', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ plan: rawPlanName, guestId })
+                              })
 
-                            if (res.ok) {
-                              if (plan.name === 'Free') {
+                              if (res.ok) {
                                 localStorage.setItem('astra_premium', 'false')
                                 alert(`Plan downgraded to Free.`)
+                                onClose()
+                                window.location.reload()
                               } else {
-                                localStorage.setItem('astra_premium', 'true')
-                                alert(`Successfully upgraded to ${plan.name}!`)
+                                const errorData = await res.json()
+                                alert(`Failed to downgrade: ${errorData.error}`)
                               }
-                              onClose()
-                              window.location.reload()
-                            } else {
-                              const errorData = await res.json()
-                              alert(`Failed to upgrade: ${errorData.error}`)
+                              setLoading(false)
+                              return
                             }
+
+                            // Load the Razorpay Checkout SDK script dynamically
+                            const loaded = await loadRazorpayScript()
+                            if (!loaded) {
+                              alert('Failed to load payment gateway. Please check your internet connection and try again.')
+                              setLoading(false)
+                              return
+                            }
+
+                            // 1. Create a secure payment order via our backend
+                            const orderRes = await fetch('/api/payment/create-order', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ plan: rawPlanName, billingCycle, guestId })
+                            })
+
+                            if (!orderRes.ok) {
+                              const errData = await orderRes.json()
+                              alert(`Failed to initiate payment: ${errData.error}`)
+                              setLoading(false)
+                              return
+                            }
+
+                            const orderData = await orderRes.json()
+
+                            // 2. Open the Razorpay Overlay Checkout Modal
+                            const options = {
+                              key: orderData.keyId,
+                              amount: orderData.amount,
+                              currency: orderData.currency,
+                              name: 'Astra AI',
+                              description: `Upgrade to ${plan.name} (${billingCycle})`,
+                              order_id: orderData.orderId,
+                              handler: async function (response: any) {
+                                try {
+                                  setLoading(true)
+                                  
+                                  // 3. Send signature verification details to backend
+                                  const verifyRes = await fetch('/api/payment/verify', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      razorpay_payment_id: response.razorpay_payment_id,
+                                      razorpay_order_id: response.razorpay_order_id,
+                                      razorpay_signature: response.razorpay_signature,
+                                      plan: rawPlanName,
+                                      guestId
+                                    })
+                                  })
+
+                                  if (verifyRes.ok) {
+                                    localStorage.setItem('astra_premium', 'true')
+                                    alert(`Successfully upgraded to ${plan.name}!`)
+                                    onClose()
+                                    window.location.reload()
+                                  } else {
+                                    const errorData = await verifyRes.json()
+                                    alert(`Payment verification failed: ${errorData.error}`)
+                                    setLoading(false)
+                                  }
+                                } catch (err) {
+                                  alert('An error occurred during payment verification.')
+                                  setLoading(false)
+                                }
+                              },
+                              prefill: {
+                                name: session?.user?.name || '',
+                                email: session?.user?.email || '',
+                              },
+                              theme: {
+                                color: '#10b981', // Beautiful emerald color matching Astra Pro/Max designs
+                              },
+                              modal: {
+                                ondismiss: function() {
+                                  setLoading(false)
+                                }
+                              }
+                            }
+
+                            const paymentObject = new (window as any).Razorpay(options)
+                            paymentObject.open()
                           } catch (err) {
-                            alert('An error occurred during upgrade.')
-                          } finally {
+                            alert('An error occurred during payment setup.')
                             setLoading(false)
                           }
                         }

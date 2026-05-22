@@ -1791,6 +1791,14 @@ export default function Home() {
       
       const isImageRequest = imageGenKeywords.test(text) || imageGenCommand
       
+      // ── PREMIUM LIMIT CHECK ────────────────────────────────
+      const isPremiumUser = typeof window !== 'undefined' ? localStorage.getItem('astra_premium') === 'true' : false
+      
+      if ((deepResearch || webSearch || isImageRequest) && !isPremiumUser) {
+        setShowPremiumModal(true)
+        return
+      }
+      
       if (isImageRequest) {
         const cleanPrompt = text
           .replace(/^(generate|create|make|draw|paint|illustrate)\s*(me\s*)?(an?\s*)?(image|picture|photo|art|illustration)?\s*(of|with|showing)?\s*/i, '')

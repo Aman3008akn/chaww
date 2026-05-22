@@ -12,6 +12,7 @@ interface Props {
 
 export default function PremiumPlansModal({ isOpen, onClose }: Props) {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly')
+  const isPremium = typeof window !== 'undefined' ? localStorage.getItem('astra_premium') === 'true' : false
 
   const plans = [
     {
@@ -31,8 +32,8 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
         'Web Search Integration',
         'AI Image Generation'
       ],
-      buttonText: 'Current Plan',
-      isCurrent: true
+      buttonText: isPremium ? 'Downgrade' : 'Current Plan',
+      isCurrent: !isPremium
     },
     {
       name: 'Astra Pro',
@@ -54,8 +55,8 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
       notIncluded: [
         'API Access'
       ],
-      buttonText: 'Upgrade to Pro',
-      isCurrent: false
+      buttonText: isPremium ? 'Current Plan' : 'Upgrade to Pro',
+      isCurrent: isPremium
     },
     {
       name: 'Astra Max',
@@ -179,6 +180,19 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
                     </div>
 
                     <button 
+                      onClick={() => {
+                        if (!plan.isCurrent) {
+                          if (plan.name === 'Free') {
+                            localStorage.setItem('astra_premium', 'false')
+                            alert(`Plan downgraded to Free.`)
+                          } else {
+                            localStorage.setItem('astra_premium', 'true')
+                            alert(`Successfully upgraded to ${plan.name}!`)
+                          }
+                          onClose()
+                          window.location.reload()
+                        }
+                      }}
                       className={cn(
                         "w-full py-3 rounded-xl font-semibold text-sm transition-all mb-8",
                         plan.isCurrent 

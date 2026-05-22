@@ -16,6 +16,7 @@ import ChatInput from '@/components/ChatInput'
 import WelcomeScreen from '@/components/WelcomeScreen'
 import ConversationAnalytics from '@/components/ConversationAnalytics'
 import TeamPanel from '@/components/TeamPanel'
+import NotebookPanel from '@/components/NotebookPanel'
 import ModelSelector, { ModelType } from '@/components/ModelSelector'
 import { useSession } from 'next-auth/react'
 import {
@@ -1468,6 +1469,7 @@ export default function Home() {
   const [csrfToken] = useState(() => getOrCreateCsrfToken())
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [showTeams, setShowTeams] = useState(false)
+  const [showNotebooks, setShowNotebooks] = useState(false)
   const [selectedModel, setSelectedModel] = useState<ModelType>('nexus-4')
 
   // Conversation state machine
@@ -2297,6 +2299,7 @@ export default function Home() {
             onDelete={deleteConv}
             syncing={syncState.syncing}
             onRefresh={refreshConversations}
+            onToggleNotebook={() => setShowNotebooks(!showNotebooks)}
           />
 
           {/* Main content */}
@@ -2349,6 +2352,11 @@ export default function Home() {
               </p>
             </div>
           </main>
+
+          {/* Notebook Panel */}
+          {showNotebooks && (
+            <NotebookPanel onClose={() => setShowNotebooks(false)} />
+          )}
 
           {/* Dev-only security badge */}
           <SecurityStatusIndicator csrfToken={csrfToken} />

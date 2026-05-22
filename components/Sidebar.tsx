@@ -16,6 +16,7 @@ import {
   UserCircle2,
   Layers,
   Users,
+  Book,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn, formatTime } from '@/lib/utils'
@@ -29,6 +30,7 @@ interface Props {
   onDelete: (id: string) => void
   syncing?: boolean
   onRefresh?: () => void
+  onToggleNotebook?: () => void
 }
 
 const isToday = (ts: number) => {
@@ -44,7 +46,7 @@ const isYesterday = (ts: number) => {
   return d.getFullYear() === y.getFullYear() && d.getMonth() === y.getMonth() && d.getDate() === y.getDate()
 }
 
-export default function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, syncing, onRefresh }: Props) {
+export default function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, syncing, onRefresh, onToggleNotebook }: Props) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -113,6 +115,7 @@ export default function Sidebar({ conversations, activeId, onSelect, onNew, onDe
         </div>
 
         <div className="px-3 py-3 border-t border-white/5 space-y-1">
+          <button onClick={onToggleNotebook} className={cn('w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition text-sm font-medium', collapsed && 'justify-center')}><Book size={15} />{!collapsed && 'Knowledge Base'}</button>
           <button className={cn('w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/5 transition text-sm', collapsed && 'justify-center')}><Layers size={15} />{!collapsed && 'Workspace'}</button>
           <button className={cn('w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-white/5 transition text-sm', collapsed && 'justify-center')}><Settings size={15} />{!collapsed && 'Settings'}</button>
           <button className={cn('w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-zinc-300 hover:text-zinc-100 hover:bg-white/5 transition text-sm', collapsed && 'justify-center')}><UserCircle2 size={15} />{!collapsed && 'Profile'}</button>

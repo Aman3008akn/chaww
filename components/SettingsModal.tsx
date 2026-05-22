@@ -12,7 +12,7 @@ interface Props {
 }
 
 export default function SettingsModal({ isOpen, onClose }: Props) {
-  const { theme, setTheme } = useTheme()
+  const { theme, toggle } = useTheme()
   const [autoThink, setAutoThink] = useState(true)
 
   useEffect(() => {
@@ -58,27 +58,20 @@ export default function SettingsModal({ isOpen, onClose }: Props) {
               {/* Theme Settings */}
               <div>
                 <h3 className="text-sm font-semibold text-zinc-300 uppercase tracking-wider mb-3">Appearance</h3>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => setTheme('light')}
+                    onClick={() => theme !== 'light' && toggle()}
                     className={cn("flex flex-col items-center gap-2 p-3 rounded-xl border transition-all", theme === 'light' ? "bg-white/10 border-white/20 text-white" : "border-white/5 text-zinc-500 hover:text-zinc-300 hover:bg-white/5")}
                   >
                     <Sun size={20} />
                     <span className="text-xs font-medium">Light</span>
                   </button>
                   <button
-                    onClick={() => setTheme('dark')}
+                    onClick={() => theme !== 'dark' && toggle()}
                     className={cn("flex flex-col items-center gap-2 p-3 rounded-xl border transition-all", theme === 'dark' ? "bg-white/10 border-white/20 text-white" : "border-white/5 text-zinc-500 hover:text-zinc-300 hover:bg-white/5")}
                   >
                     <Moon size={20} />
                     <span className="text-xs font-medium">Dark</span>
-                  </button>
-                  <button
-                    onClick={() => setTheme('system')}
-                    className={cn("flex flex-col items-center gap-2 p-3 rounded-xl border transition-all", theme === 'system' ? "bg-white/10 border-white/20 text-white" : "border-white/5 text-zinc-500 hover:text-zinc-300 hover:bg-white/5")}
-                  >
-                    <Monitor size={20} />
-                    <span className="text-xs font-medium">System</span>
                   </button>
                 </div>
               </div>

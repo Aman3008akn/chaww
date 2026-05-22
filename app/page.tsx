@@ -612,17 +612,29 @@ function makeWebSearchSteps(): ResearchStep[] {
   return WEB_SEARCH_STEPS.map(s => ({ ...s, status: 'pending' as const }))
 }
 
+function extractTopic(text?: string): string {
+  if (!text) return 'possibilities'
+  let topic = text.toLowerCase()
+    .replace(/^(please\s+|can you\s+|could you\s+|explain\s+|what is\s+|how to\s+|tell me about\s+|create\s+|make\s+|write\s+|generate\s+|summarize\s+)/ig, '')
+    .trim()
+  
+  const words = topic.split(/\s+/)
+  topic = words.slice(0, 3).join(' ')
+  topic = topic.replace(/[.!?]+$/, '')
+  
+  return topic || 'possibilities'
+}
+
 function makeThinkingSteps(userQuery?: string): ResearchStep[] {
-  // Truncate query for the label if it's too long
-  const queryStr = userQuery ? userQuery.slice(0, 30) + (userQuery.length > 30 ? '...' : '') : 'user intent'
+  const topic = extractTopic(userQuery)
   
   // Use thinking module to create dynamic steps
   const { steps } = createThinkingSession('temp', [
-    `Analyzing user intent for: "${queryStr}"`,
-    'Breaking down the problem...',
-    'Formulating approach...',
-    'Processing information...',
-    'Synthesizing response...',
+    'Understanding intent',
+    `Exploring ${topic}`,
+    'Refining approach',
+    'Generating response',
+    'Delivering answer',
   ])
   cleanupThinkingSession('temp')
   return steps
@@ -827,15 +839,15 @@ async function animateThinkingSteps(
   userQuery?: string,
   signal?: AbortSignal
 ): Promise<void> {
-  const queryStr = userQuery ? userQuery.slice(0, 30) + (userQuery.length > 30 ? '...' : '') : 'user intent'
+  const topic = extractTopic(userQuery)
   
   // Use the new thinking module
   const { sessionId, steps } = createThinkingSession(assistantId, [
-    `Analyzing user intent for: "${queryStr}"`,
-    'Breaking down the problem...',
-    'Formulating approach...',
-    'Processing information...',
-    'Synthesizing response...',
+    'Understanding intent',
+    `Exploring ${topic}`,
+    'Refining approach',
+    'Generating response',
+    'Delivering answer',
   ])
   
   // Update message with thinking steps from the module

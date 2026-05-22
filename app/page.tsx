@@ -37,6 +37,7 @@ import {
   getThinkingSteps,
   cleanupThinkingSession,
   ensureThinkingService,
+  getThinkingManager,
 } from '@/lib/thinkingAdapter'
 
 // ============================================================
@@ -626,15 +627,9 @@ function extractTopic(text?: string): string {
 }
 
 function makeThinkingSteps(userQuery?: string): ResearchStep[] {
-  const topic = extractTopic(userQuery)
-  
-  // Use thinking module to create dynamic steps
+  // Use thinking module to create initial step
   const { steps } = createThinkingSession('temp', [
-    'Understanding intent',
-    `Exploring ${topic}`,
-    'Refining approach',
-    'Generating response',
-    'Delivering answer',
+    'Understanding intent'
   ])
   cleanupThinkingSession('temp')
   return steps
@@ -838,30 +833,78 @@ async function animateThinkingSteps(
   updateSteps: (convId: string, assistantId: string, steps: ResearchStep[]) => void,
   userQuery?: string,
   signal?: AbortSignal
-): Promise<void> {
+): Promise<boolean> {
   const topic = extractTopic(userQuery)
   
-  // Use the new thinking module
+  // Start with just "Understanding intent"
   const { sessionId, steps } = createThinkingSession(assistantId, [
-    'Understanding intent',
-    `Exploring ${topic}`,
-    'Refining approach',
-    'Generating response',
-    'Delivering answer',
+    'Understanding intent'
   ])
   
-  // Update message with thinking steps from the module
+  const manager = getThinkingManager()
+  
+  // Update message with initial step
   updateSteps(convId, assistantId, steps)
   
-  // Animate through the thinking process
-  await animateThinkingProcess(sessionId, (updatedSteps) => {
-    if (!signal?.aborted) {
-      updateSteps(convId, assistantId, updatedSteps)
+  // Mark the first step as active
+  manager.updateStepStatus(sessionId, steps[0].id, 'active')
+  updateSteps(convId, assistantId, getThinkingSteps(sessionId))
+
+  // Make the API call to check complexity
+  let isComplex = false
+  try {
+    const res = await fetch('/api/eval-complexity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: userQuery }),
+      signal
+    })
+    const data = await res.json()
+    isComplex = !!data.isComplex
+  } catch (err) {
+    // Fallback if API fails
+    isComplex = isExtremelyHardQuery(userQuery || '')
+  }
+
+  // Mark first step done
+  manager.updateStepStatus(sessionId, steps[0].id, 'done')
+  updateSteps(convId, assistantId, getThinkingSteps(sessionId))
+
+  if (signal?.aborted) {
+    cleanupThinkingSession(sessionId)
+    return false
+  }
+
+  if (isComplex) {
+    // Add the rest of the product-like steps
+    const newLabels = [
+      `Exploring ${topic}`,
+      'Refining approach',
+      'Generating response',
+      'Delivering answer',
+    ]
+    newLabels.forEach((label, i) => manager.addStep(sessionId, label, i + 1))
+    updateSteps(convId, assistantId, getThinkingSteps(sessionId))
+
+    // Animate the remaining steps
+    const updatedSteps = getThinkingSteps(sessionId)
+    for (let i = 1; i < updatedSteps.length; i++) {
+      if (signal?.aborted) break
+      manager.updateStepStatus(sessionId, updatedSteps[i].id, 'active')
+      updateSteps(convId, assistantId, getThinkingSteps(sessionId))
+      
+      const delayMs = 600 + Math.random() * 800
+      await delay(delayMs)
+      
+      manager.updateStepStatus(sessionId, updatedSteps[i].id, 'done')
+      updateSteps(convId, assistantId, getThinkingSteps(sessionId))
     }
-  }, signal)
-  
-  // Cleanup
+  }
+
+  manager.setSessionState(sessionId, 'completed')
   cleanupThinkingSession(sessionId)
+  
+  return isComplex
 }
 
 // ============================================================
@@ -1830,17 +1873,11 @@ export default function Home() {
         ? localStorage.getItem('autoThink') !== 'false' 
         : true
       
-      const shouldThink = autoThinkEnabled && !deepResearch && !webSearch && isComplexQuery(text)
-      const isVeryHard = shouldThink && isExtremelyHardQuery(text)
-      const thinkDelay = isVeryHard
-        ? 5000 + Math.random() * 2000
-        : shouldThink
-        ? 2000 + Math.random() * 1000
-        : 600
+      const shouldCheckComplexity = autoThinkEnabled && !deepResearch && !webSearch
 
       const initialStatus: ConvStatus = webSearch
         ? 'searching'
-        : deepResearch || shouldThink
+        : deepResearch || shouldCheckComplexity
         ? deepResearch
           ? 'researching'
           : 'thinking'
@@ -1857,14 +1894,14 @@ export default function Home() {
         role: 'assistant',
         content: '',
         status: initialStatus,
-        thinkingStart: shouldThink || deepResearch || webSearch ? Date.now() : undefined,
+        thinkingStart: shouldCheckComplexity || deepResearch || webSearch ? Date.now() : undefined,
         thinkingTime: 0,
         researchSteps: deepResearch
           ? makeResearchSteps()
           : webSearch
           ? makeWebSearchSteps()
           : undefined,
-        thinkingSteps: isVeryHard ? makeThinkingSteps(text) : undefined,
+        thinkingSteps: shouldCheckComplexity ? makeThinkingSteps(text) : undefined,
         isDeepResearch: deepResearch,
         isWebSearch: webSearch ?? false,
         timestamp: Date.now(),
@@ -1900,7 +1937,7 @@ export default function Home() {
 
       try {
         // ── Thinking animation ─────────────────────────────
-        if (isVeryHard && !deepResearch) {
+        if (shouldCheckComplexity && !deepResearch) {
           await animateThinkingSteps(
             convId,
             assistantId,
@@ -1908,8 +1945,6 @@ export default function Home() {
             text,
             ctrl.signal
           )
-        } else if (shouldThink && !deepResearch) {
-          await delay(thinkDelay)
         }
 
         if (ctrl.signal.aborted) {

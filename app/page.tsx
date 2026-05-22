@@ -2373,6 +2373,9 @@ export default function Home() {
             onRefresh={refreshConversations}
             onToggleNotebook={() => setShowNotebooks(!showNotebooks)}
             onTogglePremium={() => setShowPremiumModal(true)}
+            onToggleWorkspace={() => setShowTeams(true)}
+            onToggleSettings={() => notify({ type: 'info', message: '⚙️ Settings panel coming soon in the next update!' })}
+            onToggleProfile={() => notify({ type: 'info', message: '👤 User profile management coming soon!' })}
           />
 
           {/* Main content */}

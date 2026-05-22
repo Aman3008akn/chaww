@@ -21,6 +21,8 @@
 
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { 
   Copy, Check, User, Brain, ChevronDown, ChevronUp, Globe, Zap, Bot, RefreshCw, 
   Share2, ExternalLink, Heart, ThumbsUp, ThumbsDown, Laugh, Frown, Angry,
@@ -95,6 +97,50 @@ const reactionVariants = {
  * MessageBubble Component
  * Displays a single message with rich formatting and interactive features
  */
+
+const CodeBlock = ({ node, inline, className, children, ...props }: any) => {
+  const [copied, setCopied] = useState(false)
+  const match = /language-(\w+)/.exec(className || '')
+  const language = match ? match[1] : 'text'
+  const codeString = String(children).replace(/\n$/, '')
+  
+  if (!inline && match) {
+    return (
+      <div className="relative group/code mt-4 mb-4 rounded-xl overflow-hidden bg-[#1e1e1e] border border-white/10">
+        <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-white/5">
+          <span className="text-xs text-gray-400 font-mono uppercase tracking-wider">{language}</span>
+          <button
+            onClick={(e) => {
+               e.stopPropagation()
+               navigator.clipboard.writeText(codeString)
+               setCopied(true)
+               setTimeout(() => setCopied(false), 2000)
+            }}
+            className="flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-gray-300 transition-colors text-xs"
+          >
+            {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+            {copied ? <span className="text-emerald-400">Copied!</span> : 'Copy code'}
+          </button>
+        </div>
+        <SyntaxHighlighter
+          {...props}
+          style={vscDarkPlus}
+          language={language}
+          PreTag="div"
+          customStyle={{ margin: 0, padding: '1rem', background: 'transparent' }}
+        >
+          {codeString}
+        </SyntaxHighlighter>
+      </div>
+    )
+  }
+  return (
+    <code className={cn("bg-secondary/50 rounded px-1.5 py-0.5 text-sm font-mono text-pink-500", className)} {...props}>
+      {children}
+    </code>
+  )
+}
+
 export default function MessageBubble({ 
   message,
   onReact,
@@ -509,7 +555,12 @@ export default function MessageBubble({
     
     return (
       <div className="prose-nexus text-[15px] sm:text-base selection:bg-primary/20">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+        <ReactMarkdown 
+          remarkPlugins={[remarkGfm]}
+          components={{
+            code: CodeBlock
+          }}
+        >
           {(message.status === 'streaming' ? streamingContent : cleanContent) + (message.status === 'streaming' ? '▍' : '')}
         </ReactMarkdown>
       </div>

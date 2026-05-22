@@ -16,7 +16,7 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
   const plans = [
     {
       name: 'Free',
-      price: '$0',
+      price: '₹0',
       description: 'Perfect for casual users who just need quick answers.',
       icon: <Zap className="text-zinc-400" size={24} />,
       color: 'bg-zinc-800/50 border-zinc-700',
@@ -36,7 +36,7 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
     },
     {
       name: 'Nexus Pro',
-      price: billingCycle === 'monthly' ? '$10' : '$8',
+      price: billingCycle === 'monthly' ? '₹899' : '₹749',
       period: '/mo',
       description: 'For professionals needing deeper context and advanced tools.',
       icon: <Sparkles className="text-emerald-400" size={24} />,
@@ -59,7 +59,7 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
     },
     {
       name: 'Nexus Max',
-      price: billingCycle === 'monthly' ? '$25' : '$20',
+      price: billingCycle === 'monthly' ? '₹1999' : '₹1599',
       period: '/mo',
       description: 'The ultimate AI workstation with zero compromises.',
       icon: <Crown className="text-amber-400" size={24} />,
@@ -173,7 +173,7 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
                     <div className="mb-6">
                       <span className="text-4xl font-extrabold text-white">{plan.price}</span>
                       {plan.period && <span className="text-zinc-400">{plan.period}</span>}
-                      {billingCycle === 'yearly' && plan.price !== '$0' && (
+                      {billingCycle === 'yearly' && plan.price !== '₹0' && (
                         <div className="text-xs text-emerald-400 font-medium mt-1">Billed annually</div>
                       )}
                     </div>
@@ -217,7 +217,7 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
             {/* Footer */}
             <div className="bg-white/5 border-t border-white/5 px-8 py-4 text-center">
               <p className="text-xs text-zinc-500">
-                Prices shown in USD. Subscriptions can be cancelled at any time. For enterprise inquiries, please contact our sales team.
+                Prices shown in INR (₹). Subscriptions can be cancelled at any time. For enterprise inquiries, please contact our sales team.
               </p>
             </div>
           </motion.div>

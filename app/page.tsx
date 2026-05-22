@@ -1613,7 +1613,7 @@ export default function Home() {
   const convSearch = useConversationSearch(conversations)
   const stats = useConversationStats(conversations)
 
-  // ── Dev-mode CSP hint ─────────────────────────────────────
+  // ── Dev-mode CSP hint & Backend Plan Sync ─────────────────────────────────────
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
       console.info('[Security] Recommended CSP:', DEV_CSP_HINT)
@@ -1622,6 +1622,34 @@ export default function Home() {
     
     // Initialize thinking service
     ensureThinkingService()
+
+    // Sync premium plan securely from backend
+    async function syncPlan() {
+      try {
+        const guestRaw = localStorage.getItem('guest_profile')
+        const guestId = guestRaw ? JSON.parse(guestRaw).id : null
+        
+        let url = '/api/upgrade'
+        if (guestId) url += `?guestId=${guestId}`
+        
+        const res = await fetch(url)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.plan === 'pro' || data.plan === 'max') {
+            localStorage.setItem('astra_premium', 'true')
+          } else {
+            localStorage.setItem('astra_premium', 'false')
+          }
+        }
+      } catch (err) {
+        console.error('Failed to sync plan:', err)
+      }
+    }
+    
+    // Only check if they are logged in or have a guest profile
+    if (session?.user || localStorage.getItem('guest_profile')) {
+      syncPlan()
+    }
   }, [session])
 
   // ── Conversation loading ──────────────────────────────────

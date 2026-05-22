@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, X, Sparkles, Zap, Crown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useSession } from 'next-auth/react'
 
 interface Props {
   isOpen: boolean
@@ -12,6 +13,8 @@ interface Props {
 
 export default function PremiumPlansModal({ isOpen, onClose }: Props) {
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly')
+  const [loading, setLoading] = useState(false)
+  const { data: session } = useSession()
   const isPremium = typeof window !== 'undefined' ? localStorage.getItem('astra_premium') === 'true' : false
 
   const plans = [
@@ -180,17 +183,46 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
                     </div>
 
                     <button 
-                      onClick={() => {
-                        if (!plan.isCurrent) {
-                          if (plan.name === 'Free') {
-                            localStorage.setItem('astra_premium', 'false')
-                            alert(`Plan downgraded to Free.`)
-                          } else {
-                            localStorage.setItem('astra_premium', 'true')
-                            alert(`Successfully upgraded to ${plan.name}!`)
+                      onClick={async () => {
+                        if (!plan.isCurrent && !loading) {
+                          try {
+                            setLoading(true)
+                            
+                            const guestRaw = localStorage.getItem('guest_profile')
+                            const guestId = guestRaw ? JSON.parse(guestRaw).id : null
+
+                            const rawPlanName = plan.name === 'Free' ? 'free' : plan.name.includes('Pro') ? 'pro' : 'max'
+
+                            if (!session?.user && !guestId) {
+                              alert('Please sign in or start a guest session to upgrade.')
+                              return
+                            }
+
+                            const res = await fetch('/api/upgrade', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ plan: rawPlanName, guestId })
+                            })
+
+                            if (res.ok) {
+                              if (plan.name === 'Free') {
+                                localStorage.setItem('astra_premium', 'false')
+                                alert(`Plan downgraded to Free.`)
+                              } else {
+                                localStorage.setItem('astra_premium', 'true')
+                                alert(`Successfully upgraded to ${plan.name}!`)
+                              }
+                              onClose()
+                              window.location.reload()
+                            } else {
+                              const errorData = await res.json()
+                              alert(`Failed to upgrade: ${errorData.error}`)
+                            }
+                          } catch (err) {
+                            alert('An error occurred during upgrade.')
+                          } finally {
+                            setLoading(false)
                           }
-                          onClose()
-                          window.location.reload()
                         }
                       }}
                       className={cn(

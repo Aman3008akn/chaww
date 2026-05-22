@@ -35,7 +35,7 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
       isCurrent: true
     },
     {
-      name: 'Nexus Pro',
+      name: 'Astra Pro',
       price: billingCycle === 'monthly' ? '₹899' : '₹749',
       period: '/mo',
       description: 'For professionals needing deeper context and advanced tools.',
@@ -58,7 +58,7 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
       isCurrent: false
     },
     {
-      name: 'Nexus Max',
+      name: 'Astra Max',
       price: billingCycle === 'monthly' ? '₹1999' : '₹1599',
       period: '/mo',
       description: 'The ultimate AI workstation with zero compromises.',
@@ -108,7 +108,7 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
               </button>
               
               <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-400 tracking-tight mb-4">
-                Unlock the Power of Nexus AI
+                Unlock the Power of Astra AI
               </h2>
               <p className="text-zinc-400 text-lg max-w-2xl mx-auto mb-8">
                 Experience unprecedented intelligence with deeper reasoning, real-time web search, and limitless knowledge bases.

@@ -262,7 +262,7 @@ async function streamFromPollinations(
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages, mode, userName, imageUrl, model, userEmail } = await req.json()
+    const { messages, mode, userName, imageUrl, model, userEmail, notebookSources } = await req.json()
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response(
@@ -411,6 +411,21 @@ export async function POST(req: NextRequest) {
     `
     }
 
+    let notebookContextPrompt = ''
+    if (notebookSources && Array.isArray(notebookSources) && notebookSources.length > 0) {
+      const allText = notebookSources.map((src: any) => `Source: ${src.name}\n${src.content}`).join('\n\n---\n\n')
+      notebookContextPrompt = `
+        KNOWLEDGE BASE CONTENT:
+        The user has uploaded the following documents to their Knowledge Base (NotebookLM Mode).
+        You MUST use this information to answer the user's questions if relevant.
+        If the user asks a question that can be answered using these documents, base your answer heavily on this context and cite the source name.
+        
+        <documents>
+        ${allText}
+        </documents>
+      `
+    }
+
     let systemPrompt: string
     
     if (mode === 'deep_research') {
@@ -418,6 +433,7 @@ export async function POST(req: NextRequest) {
         ${greetingDetail}
         ${ownerInfo}
         ${memoriesPrompt}
+        ${notebookContextPrompt}
         ${modelSpecificPrompt}
 
         INTERNAL REASONING GUIDELINES:
@@ -439,6 +455,7 @@ export async function POST(req: NextRequest) {
         ${greetingDetail}
         ${ownerInfo}
         ${memoriesPrompt}
+        ${notebookContextPrompt}
         ${modelSpecificPrompt}
         
         CRITICAL INSTRUCTIONS FOR WEB SEARCH MODE:
@@ -456,6 +473,7 @@ export async function POST(req: NextRequest) {
         ${greetingDetail}
         ${ownerInfo}
         ${memoriesPrompt}
+        ${notebookContextPrompt}
         ${modelSpecificPrompt}
         
         ABSOLUTE RULES - FOLLOW STRICTLY:

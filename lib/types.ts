@@ -7,6 +7,14 @@ export interface SearchSource {
   snippet?: string
 }
 
+export interface NotebookSource {
+  id: string
+  name: string
+  type: 'pdf' | 'text' | 'url'
+  content?: string
+  createdAt: number
+}
+
 export interface ResearchStep {
   id: string
   label: string

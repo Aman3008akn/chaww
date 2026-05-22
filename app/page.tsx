@@ -25,7 +25,7 @@ import {
   getConversationTitle, saveConversations, loadConversations
 } from '@/lib/utils'
 import type {
-  Message, Conversation, ResearchStep, SearchSource
+  Message, Conversation, ResearchStep, SearchSource, NotebookSource
 } from '@/lib/types'
 import { extractMemoriesFromText } from '@/lib/memories'
 import {
@@ -1470,6 +1470,7 @@ export default function Home() {
   const [csrfToken] = useState(() => getOrCreateCsrfToken())
   const [showTeams, setShowTeams] = useState(false)
   const [showNotebooks, setShowNotebooks] = useState(false)
+  const [notebookSources, setNotebookSources] = useState<NotebookSource[]>([])
   const [selectedModel, setSelectedModel] = useState<ModelType>('nexus-4')
 
   // Conversation state machine
@@ -1974,6 +1975,7 @@ export default function Home() {
             userEmail: session?.user?.email,
             imageUrl: safeImage,
             model: selectedModel,
+            notebookSources: showNotebooks ? notebookSources : undefined,
           }),
           signal: ctrl.signal,
         })
@@ -2355,7 +2357,11 @@ export default function Home() {
 
           {/* Notebook Panel */}
           {showNotebooks && (
-            <NotebookPanel onClose={() => setShowNotebooks(false)} />
+            <NotebookPanel 
+              sources={notebookSources}
+              setSources={setNotebookSources}
+              onClose={() => setShowNotebooks(false)} 
+            />
           )}
 
           {/* Dev-only security badge */}

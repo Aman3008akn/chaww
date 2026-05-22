@@ -49,7 +49,7 @@ export default function NotebookFeaturePopup({ onTryNow }: Props) {
 
             <button 
               onClick={handleClose}
-              className="absolute top-4 right-4 p-2 text-zinc-400 hover:text-white bg-black/20 hover:bg-black/40 rounded-full transition z-10"
+              className="absolute top-4 right-4 p-2 text-zinc-400 hover:text-white bg-black/20 hover:bg-black/40 rounded-full transition z-50"
             >
               <X size={18} />
             </button>

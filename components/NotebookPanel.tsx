@@ -3,45 +3,54 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Book, Upload, FileText, Link as LinkIcon, Trash2, X, File, Plus } from 'lucide-react'
-
-interface Source {
-  id: string
-  name: string
-  type: 'pdf' | 'text' | 'url'
-  url?: string
-  snippet?: string
-  createdAt: number
-}
+import type { NotebookSource } from '@/lib/types'
 
 interface Props {
+  sources: NotebookSource[]
+  setSources: (sources: NotebookSource[]) => void
   onClose?: () => void
 }
 
-export default function NotebookPanel({ onClose }: Props) {
-  const [sources, setSources] = useState<Source[]>([
-    // Mock data for initial UI
-    { id: '1', name: 'Product_Requirements_v2.pdf', type: 'pdf', createdAt: Date.now() - 100000 },
-    { id: '2', name: 'Meeting_Notes_Q3.txt', type: 'text', createdAt: Date.now() - 500000 },
-  ])
+export default function NotebookPanel({ sources, setSources, onClose }: Props) {
   const [isUploading, setIsUploading] = useState(false)
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     
     setIsUploading(true)
     
-    // Simulate upload delay
-    setTimeout(() => {
-      const newSource: Source = {
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const res = await fetch('/api/parse-document', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Upload failed')
+      }
+
+      const newSource: NotebookSource = {
         id: Math.random().toString(36).substring(7),
-        name: file.name,
-        type: file.name.endsWith('.pdf') ? 'pdf' : 'text',
+        name: data.name,
+        type: data.type === 'pdf' ? 'pdf' : 'text',
+        content: data.text,
         createdAt: Date.now(),
       }
+      
       setSources([newSource, ...sources])
+    } catch (err: any) {
+      alert(err.message || 'Failed to process document')
+    } finally {
       setIsUploading(false)
-    }, 1500)
+      // Reset input
+      e.target.value = ''
+    }
   }
 
   const removeSource = (id: string) => {

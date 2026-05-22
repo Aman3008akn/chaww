@@ -1,5 +1,5 @@
 'use client'
-import { Sun, Moon, Plus, BarChart3, Users } from 'lucide-react'
+import { Sun, Moon, Plus, Book, Users } from 'lucide-react'
 import Image from 'next/image'
 import { useTheme } from './ThemeProvider'
 import { UserMenu } from './UserMenu'
@@ -7,13 +7,13 @@ import ModelSelector, { ModelType } from './ModelSelector'
 
 interface Props {
   onNew: () => void
-  onAnalytics?: () => void
+  onNotebooks?: () => void
   onTeams?: () => void
   currentModel?: ModelType
   onModelChange?: (model: ModelType) => void
 }
 
-export default function Header({ onNew, onAnalytics, onTeams, currentModel, onModelChange }: Props) {
+export default function Header({ onNew, onNotebooks, onTeams, currentModel, onModelChange }: Props) {
   const { theme, toggle } = useTheme()
 
   return (
@@ -32,13 +32,14 @@ export default function Header({ onNew, onAnalytics, onTeams, currentModel, onMo
       </div>
 
       <div className="flex items-center gap-1 sm:gap-1.5">
-        {onAnalytics && (
+        {onNotebooks && (
           <button
-            onClick={onAnalytics}
-            className="p-2 sm:p-1.5 rounded-lg hover:bg-[var(--surface)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)] touch-manipulation min-h-[40px]"
-            title="View Analytics"
+            onClick={onNotebooks}
+            className="p-2 sm:p-1.5 rounded-lg hover:bg-[var(--surface)] transition-colors text-emerald-400 hover:text-emerald-300 touch-manipulation min-h-[40px] flex items-center justify-center relative group"
+            title="Knowledge Base"
           >
-            <BarChart3 size={16} />
+            <div className="absolute inset-0 bg-emerald-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" />
+            <Book size={16} className="relative z-10" />
           </button>
         )}
         {onTeams && (

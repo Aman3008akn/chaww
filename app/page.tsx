@@ -17,6 +17,7 @@ import WelcomeScreen from '@/components/WelcomeScreen'
 import ConversationAnalytics from '@/components/ConversationAnalytics'
 import TeamPanel from '@/components/TeamPanel'
 import NotebookPanel from '@/components/NotebookPanel'
+import NotebookFeaturePopup from '@/components/NotebookFeaturePopup'
 import ModelSelector, { ModelType } from '@/components/ModelSelector'
 import { useSession } from 'next-auth/react'
 import {
@@ -1467,7 +1468,6 @@ export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [csrfToken] = useState(() => getOrCreateCsrfToken())
-  const [showAnalytics, setShowAnalytics] = useState(false)
   const [showTeams, setShowTeams] = useState(false)
   const [showNotebooks, setShowNotebooks] = useState(false)
   const [selectedModel, setSelectedModel] = useState<ModelType>('nexus-4')
@@ -2306,7 +2306,7 @@ export default function Home() {
           <main className="flex flex-col flex-1 min-w-0 h-full">
             <Header 
               onNew={newChat}
-              onAnalytics={() => setShowAnalytics(true)}
+              onNotebooks={() => setShowNotebooks(!showNotebooks)}
               onTeams={() => setShowTeams(true)}
               currentModel={selectedModel}
               onModelChange={setSelectedModel}
@@ -2361,14 +2361,8 @@ export default function Home() {
           {/* Dev-only security badge */}
           <SecurityStatusIndicator csrfToken={csrfToken} />
           
-          {/* Conversation Analytics Modal */}
-          {showAnalytics && (
-            <ConversationAnalytics
-              conversations={conversations}
-              currentMessages={activeConv?.messages || []}
-              onClose={() => setShowAnalytics(false)}
-            />
-          )}
+          {/* Notebook Feature Popup */}
+          <NotebookFeaturePopup onTryNow={() => setShowNotebooks(true)} />
 
           {/* Team Panel */}
           {(session?.user || guestProfile) && (

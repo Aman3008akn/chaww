@@ -84,7 +84,7 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 md:p-12">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 md:p-12">
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -103,18 +103,18 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
             className="relative w-full max-w-6xl bg-[#0c0c0e] border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
           >
             {/* Header */}
-            <div className="relative px-8 pt-12 pb-8 text-center shrink-0">
+            <div className="relative px-4 sm:px-8 pt-8 sm:pt-12 pb-6 sm:pb-8 text-center shrink-0">
               <button 
                 onClick={onClose}
-                className="absolute top-6 right-6 p-2 text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-full transition z-10"
+                className="absolute top-4 right-4 sm:top-6 sm:right-6 p-2 text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-full transition z-10"
               >
                 <X size={20} />
               </button>
               
-              <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-400 tracking-tight mb-4">
+              <h2 className="text-2xl sm:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white to-zinc-400 tracking-tight mb-2 sm:mb-4">
                 Unlock the Power of Astra AI
               </h2>
-              <p className="text-zinc-400 text-lg max-w-2xl mx-auto mb-8">
+              <p className="text-zinc-400 text-sm sm:text-lg max-w-2xl mx-auto mb-6 sm:mb-8">
                 Experience unprecedented intelligence with deeper reasoning, real-time web search, and limitless knowledge bases.
               </p>
 
@@ -150,7 +150,7 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
             </div>
 
             {/* Plans Grid */}
-            <div className="px-8 pb-12 overflow-y-auto">
+            <div className="px-4 sm:px-8 pb-8 sm:pb-12 overflow-y-auto">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {plans.map((plan, i) => (
                   <div 
@@ -261,8 +261,8 @@ export default function PremiumPlansModal({ isOpen, onClose }: Props) {
             </div>
             
             {/* Footer */}
-            <div className="bg-white/5 border-t border-white/5 px-8 py-4 text-center">
-              <p className="text-xs text-zinc-500">
+            <div className="bg-white/5 border-t border-white/5 px-4 sm:px-8 py-3 sm:py-4 text-center shrink-0">
+              <p className="text-[10px] sm:text-xs text-zinc-500">
                 Prices shown in INR (₹). Subscriptions can be cancelled at any time. For enterprise inquiries, please contact our sales team.
               </p>
             </div>

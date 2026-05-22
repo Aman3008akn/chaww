@@ -8,11 +8,11 @@ interface Props {
 }
 
 const THOUGHTS = [
-  'Deep Analysis Initiated...',
-  'Extracting Core Concepts...',
-  'Processing Complexity...',
-  'Mapping Logical Paths...',
-  'Synthesizing Insights...',
+  'Thinking...',
+  'Evaluating query...',
+  'Extracting intent...',
+  'Processing context...',
+  'Structuring response...',
 ]
 
 export default function ThinkingBadge({ message }: Props) {

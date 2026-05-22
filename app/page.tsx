@@ -17,6 +17,7 @@ import WelcomeScreen from '@/components/WelcomeScreen'
 import ConversationAnalytics from '@/components/ConversationAnalytics'
 import TeamPanel from '@/components/TeamPanel'
 import NotebookPanel from '@/components/NotebookPanel'
+import PremiumPlansModal from '@/components/PremiumPlansModal'
 import NotebookFeaturePopup from '@/components/NotebookFeaturePopup'
 import ModelSelector, { ModelType } from '@/components/ModelSelector'
 import { useSession } from 'next-auth/react'
@@ -1537,6 +1538,7 @@ export default function Home() {
   const [csrfToken] = useState(() => getOrCreateCsrfToken())
   const [showTeams, setShowTeams] = useState(false)
   const [showNotebooks, setShowNotebooks] = useState(false)
+  const [showPremiumModal, setShowPremiumModal] = useState(false)
   const [notebookSources, setNotebookSources] = useState<NotebookSource[]>([])
   const [selectedModel, setSelectedModel] = useState<ModelType>('nexus-4')
 
@@ -2362,6 +2364,7 @@ export default function Home() {
             syncing={syncState.syncing}
             onRefresh={refreshConversations}
             onToggleNotebook={() => setShowNotebooks(!showNotebooks)}
+            onTogglePremium={() => setShowPremiumModal(true)}
           />
 
           {/* Main content */}
@@ -2429,6 +2432,12 @@ export default function Home() {
           
           {/* Notebook Feature Popup */}
           <NotebookFeaturePopup onTryNow={() => setShowNotebooks(true)} />
+
+          {/* Premium Plans Modal */}
+          <PremiumPlansModal 
+            isOpen={showPremiumModal} 
+            onClose={() => setShowPremiumModal(false)} 
+          />
 
           {/* Team Panel */}
           {(session?.user || guestProfile) && (

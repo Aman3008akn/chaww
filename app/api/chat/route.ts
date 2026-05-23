@@ -54,7 +54,7 @@ async function streamFromGemini(
             temperature: useWebSearch ? 0.2 : 0.05,
             topP: 0.95,
             topK: 20,
-            maxOutputTokens: 8192,
+            maxOutputTokens: 1000000, // Maximized for "unlimited" lines of code
           }
         }
 

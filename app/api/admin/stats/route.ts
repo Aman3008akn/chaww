@@ -4,12 +4,36 @@ import { connectToDatabase } from '@/lib/mongodb'
 
 const ADMIN_EMAIL = 'declined8087@gmail.com'
 
+async function checkIsAdmin(req: NextRequest) {
+  const session = await getServerSession()
+  const isSessionAdmin = session?.user?.email === ADMIN_EMAIL ||
+                         session?.user?.email?.toLowerCase().includes('user2') ||
+                         session?.user?.name?.toLowerCase().includes('user2');
+
+  if (isSessionAdmin) return true
+
+  // Check guest admin using guestId
+  try {
+    const url = new URL(req.url)
+    const guestId = url.searchParams.get('guestId')
+    if (guestId) {
+      const { db } = await connectToDatabase()
+      const guestUser = await db.collection('users').findOne({ id: guestId })
+      if (guestUser?.username?.toLowerCase() === 'user2') {
+        return true
+      }
+    }
+  } catch {}
+
+  return false
+}
+
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession()
-    if (session?.user?.email !== ADMIN_EMAIL) {
+    const isAdmin = await checkIsAdmin(req)
+    if (!isAdmin) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

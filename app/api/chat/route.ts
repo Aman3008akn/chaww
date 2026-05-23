@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { GoogleGenerativeAI } from "@google/generative-ai"
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai"
 import { connectToDatabase } from '@/lib/mongodb'
 import * as MemoryUtils from '@/lib/memories'
 import type { Memory } from '@/lib/memories'
@@ -18,21 +18,29 @@ async function streamFromGemini(
   encoder: TextEncoder,
   signal: AbortSignal,
   imageUrl?: string,
-  useWebSearch: boolean = false
+  useWebSearch: boolean = false,
+  modelNameOverride?: string
 ): Promise<boolean> {
   try {
     if (!GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY is not configured in environment variables')
     }
 
-    const modelsToTry = [
-      "gemini-2.5-pro",
-      "gemini-2.0-flash",
-      "gemini-1.5-pro",
-      "gemini-2.5-flash",
-      "gemini-1.5-flash",
-      "gemini-pro-latest"
-    ]
+    const modelsToTry = modelNameOverride === 'adat-pro'
+      ? [
+          "gemini-2.5-pro",
+          "gemini-1.5-pro",
+          "gemini-2.0-flash",
+          "gemini-2.5-flash"
+        ]
+      : [
+          "gemini-2.5-pro",
+          "gemini-2.0-flash",
+          "gemini-1.5-pro",
+          "gemini-2.5-flash",
+          "gemini-1.5-flash",
+          "gemini-pro-latest"
+        ]
 
     let lastError: any = null
     let isRateLimited = false
@@ -47,14 +55,22 @@ async function streamFromGemini(
       try {
         console.log(`Attempting to use model: ${modelName}${useWebSearch ? ' (with web search)' : ''}`)
         
+        const safetySettings = [
+          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+        ]
+
         const modelConfig: any = {
           model: modelName,
           systemInstruction: systemPrompt,
+          safetySettings,
           generationConfig: {
             temperature: useWebSearch ? 0.2 : 0.05,
             topP: 0.95,
             topK: 20,
-            maxOutputTokens: 1000000, // Maximized for "unlimited" lines of code
+            maxOutputTokens: 65536, // Increased to support massive output
           }
         }
 
@@ -107,7 +123,13 @@ async function streamFromGemini(
               break
             }
 
-            const chunkText = chunk.text()
+            let chunkText = ''
+            try {
+              chunkText = chunk.text()
+            } catch (e) {
+              console.warn('Empty chunk or safety block received')
+            }
+            
             if (chunkText) {
               try {
                 controller.enqueue(
@@ -596,6 +618,7 @@ export async function POST(req: NextRequest) {
         - NEVER start with "Hello", "Hi", or the developer's name unless in first-turn greeting.
         - NEVER reference, summarize, or repeat previous conversation context.
         - Each message is INDEPENDENT — answer ONLY the current technical question.
+        - If the user asks about real-time events, current news, today's weather, or any information requiring real-time internet access, and Web Search is NOT enabled, you MUST NOT generate programming code or mock scripts. Instead, politely explain that Web Search is currently disabled and ask the user to click the Globe icon (Web Search) next to the chat input to fetch real-time information.
         - NO "As I mentioned before" or "Previously we discussed" — EVER.
         - If asked for code, provide COMPLETE, RUNNABLE, PRODUCTION-READY code.
         - NEVER TRUNCATE CODE. Provide the FULL, complete source code regardless of length.
@@ -607,6 +630,22 @@ export async function POST(req: NextRequest) {
         - Suggest TEST CASES for critical paths.
         - Use markdown code blocks with LANGUAGE tags.
         - FOLLOW_UP: 2-3 technical follow-up questions at the very end, formatted as "FOLLOW_UP: [Question]"`
+    }
+
+    let adatProPrompt = ''
+    if (selectedModel === 'adat-pro') {
+      adatProPrompt = `
+      [PRO MODEL ENGAGED: A-DAT (Advanced Developer Analytical Tool)]
+      - You are operating in your highest capability mode (A-DAT PRO).
+      - Provide extremely rigorous, mathematically precise, and deeply researched answers.
+      - Never compromise on quality. Detail every complexity, architectural bottleneck, and design pattern.
+      - Solve the problem with maximum analytical reasoning, step-by-step logic, and clean, enterprise-grade engineering.
+      - Make your answers incredibly comprehensive and expert.
+      `
+    }
+
+    if (adatProPrompt) {
+      systemPrompt = `${adatProPrompt}\n\n${systemPrompt}`
     }
 
     const encoder = new TextEncoder()
@@ -661,7 +700,8 @@ export async function POST(req: NextRequest) {
             encoder, 
             req.signal, 
             imageUrl, 
-            isWebSearch
+            isWebSearch,
+            selectedModel
           )
 
           if (!success) {

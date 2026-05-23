@@ -194,10 +194,15 @@ export function validateMessageContent(
     errors.push(`Message exceeds maximum length of ${config.maxMessageLength} characters`)
   }
 
+  // Create a copy of the content with all markdown code blocks stripped out to prevent false-positives on programming code blocks
+  const scanContent = content
+    .replace(/```[\s\S]*?```/g, '') // Strip multiline code blocks
+    .replace(/`[^`\n]*?`/g, '')    // Strip inline code blocks
+
   // Detect script patterns
   if (config.preventXSS) {
     for (const pattern of SCRIPT_PATTERNS) {
-      if (pattern.test(content)) {
+      if (pattern.test(scanContent)) {
         errors.push('Potentially malicious script detected')
         break
       }
@@ -207,7 +212,7 @@ export function validateMessageContent(
   // Detect SQL injection attempts
   if (config.preventInjection) {
     for (const pattern of SQL_INJECTION_PATTERNS) {
-      if (pattern.test(content)) {
+      if (pattern.test(scanContent)) {
         errors.push('Potentially malicious SQL injection attempt detected')
         break
       }

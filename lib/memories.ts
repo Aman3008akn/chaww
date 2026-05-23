@@ -214,27 +214,42 @@ export async function extractMemoriesWithAI(
   try {
     if (!apiKey) return []
     
-    // Use the cheaper/faster model for extraction
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
-    
-    const prompt = `
-    You are a memory extraction assistant. Your task is to identify important personal information, preferences, or states that a user shares in a conversation.
-    
-    User Message: "${text}"
-    
-    Categories: identity, location, preferences, professional, personal, education, emotional, physical, other.
-    
-    Rules:
-    1. Extract facts that should be remembered to personalize future conversations.
-    2. Format the response ONLY as a JSON array of objects: [{"key": "string", "value": "string", "category": "category", "confidence": 0-1}]
-    3. If nothing important is found, return an empty array [].
-    4. Keep keys short and semantic (e.g., "name", "favorite_color", "current_mood").
-    5. ONLY return the JSON array, no other text.
-    `
-    
-    const result = await model.generateContent(prompt)
-    const responseText = result.response.text().trim()
+    const modelsToTry = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
+    let responseText = ""
+    let lastError: any = null
+
+    for (const modelName of modelsToTry) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName })
+        
+        const prompt = `
+        You are a memory extraction assistant. Your task is to identify important personal information, preferences, or states that a user shares in a conversation.
+        
+        User Message: "${text}"
+        
+        Categories: identity, location, preferences, professional, personal, education, emotional, physical, other.
+        
+        Rules:
+        1. Extract facts that should be remembered to personalize future conversations.
+        2. Format the response ONLY as a JSON array of objects: [{"key": "string", "value": "string", "category": "category", "confidence": 0-1}]
+        3. If nothing important is found, return an empty array [].
+        4. Keep keys short and semantic (e.g., "name", "favorite_color", "current_mood").
+        5. ONLY return the JSON array, no other text.
+        `
+        
+        const result = await model.generateContent(prompt)
+        responseText = result.response.text().trim()
+        break // Break if successful
+      } catch (err: any) {
+        console.warn(`Memory extraction model ${modelName} failed:`, err.message)
+        lastError = err
+      }
+    }
+
+    if (!responseText && lastError) {
+      throw lastError
+    }
     
     // Parse JSON
     let jsonStr = responseText

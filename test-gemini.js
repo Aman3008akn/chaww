@@ -1,7 +1,7 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 async function listModels() {
-  const apiKey = process.env.GEMINI_API_KEY || 'AIzaSyAr9Iwa2zUMQv52Gxh_q90liwXWqO35drI';
+  const apiKey = process.env.GEMINI_API_KEY || '';
   
   console.log('Testing Gemini API Key...\n');
   

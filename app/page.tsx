@@ -837,11 +837,23 @@ async function animateThinkingSteps(
   userQuery?: string,
   signal?: AbortSignal
 ): Promise<boolean> {
-  // Fast-path: Skip API check instantly for very short/simple messages like "hi"
   const q = (userQuery || '').trim()
-  if (q.length < 20 && !q.includes('?')) {
-    return false
+
+  // ── Fast-path: Explicit Thinking Commands (Trigger Thinking Mode Always) ──
+  const explicitThinkingPattern = /\b(think|thinking|soch|socho|reasoning|deep\s*think|step\s*by\s*step)\b|think\s*kr|thinking\s*kr|think\s*karo/i
+  const isExplicitThinking = explicitThinkingPattern.test(q)
+
+  // ── Fast-path: Definitely simple ──
+  if (!isExplicitThinking) {
+    if (q.length < 15) return false
+    if (/^(hi|hello|hey|ok|thanks|bye|yes|no|maybe|sure|nope|lol|haha)/i.test(q)) return false
+    if (/^(what is|who is|where is|when is|how old is)\s+\w+\s*\?*$/i.test(q)) return false
+    if (/^(capital of|population of|ceo of|founder of)\s+\w+\s*\?*$/i.test(q)) return false
   }
+
+  // ── Fast-path: Definitely complex ──
+  const definitelyComplex = /\b(explain\s+in\s+detail|design\s+a|implement|debug|architect|optimize|refactor|compare\s+and\s+contrast|pros\s+and\s+cons|step\s+by\s+step|deep\s+dive|comprehensive|multi-step|algorithm|data\s+structure|distributed\s+system|microservices|monolith|load\s+balancer|cache|database\s+design|API\s+design|security\s+vulnerability|memory\s+leak|race\s+condition|deadlock|big\s+o|time\s+complexity|space\s+complexity)\b/i
+  const isDefinitelyComplex = isExplicitThinking || definitelyComplex.test(q)
 
   const topic = extractTopic(userQuery)
   
@@ -860,19 +872,21 @@ async function animateThinkingSteps(
   updateSteps(convId, assistantId, getThinkingSteps(sessionId))
 
   // Make the API call to check complexity
-  let isComplex = false
-  try {
-    const res = await fetch('/api/eval-complexity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: userQuery }),
-      signal
-    })
-    const data = await res.json()
-    isComplex = !!data.isComplex
-  } catch (err) {
-    // Fallback if API fails
-    isComplex = isExtremelyHardQuery(userQuery || '')
+  let isComplex = isDefinitelyComplex
+  if (!isDefinitelyComplex) {
+    try {
+      const res = await fetch('/api/eval-complexity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: userQuery }),
+        signal
+      })
+      const data = await res.json()
+      isComplex = !!data.isComplex
+    } catch (err) {
+      // Fallback if API fails
+      isComplex = isExtremelyHardQuery(userQuery || '')
+    }
   }
 
   // Mark first step done
@@ -1551,6 +1565,15 @@ export default function Home() {
   const [showProfileModal, setShowProfileModal] = useState(false)
   const [notebookSources, setNotebookSources] = useState<NotebookSource[]>([])
   const [selectedModel, setSelectedModel] = useState<ModelType>('nexus-4')
+
+  // Show CSRF token in the URL bar as requested by the user
+  useEffect(() => {
+    if (typeof window !== 'undefined' && csrfToken) {
+      const url = new URL(window.location.href)
+      url.searchParams.set('csrf', csrfToken)
+      window.history.replaceState(null, '', url.pathname + url.search)
+    }
+  }, [csrfToken])
 
   // Conversation state machine
   const [convState, convDispatch] = useReducer(convReducer, {

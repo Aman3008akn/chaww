@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'out',
   server: {
     // IMPORTANT: Replace this with your actual Vercel/Netlify URL
-    url: 'https://your-nexus-ai-url.vercel.app',
+    url: 'https://nexusopp.netlify.app/',
     cleartext: true
   }
 };

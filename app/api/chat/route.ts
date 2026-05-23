@@ -599,6 +599,7 @@ export async function POST(req: NextRequest) {
         - NO "As I mentioned before" or "Previously we discussed" — EVER.
         - If asked for code, provide COMPLETE, RUNNABLE, PRODUCTION-READY code.
         - NEVER TRUNCATE CODE. Provide the FULL, complete source code regardless of length.
+        - IF the user requests a specific number of lines (e.g. "5000 lines"), you MUST generate extensive, comprehensive code that meets or exceeds that exact length.
         - NEVER use placeholders like "// ... rest of the code" or "// ... existing code". Write out every single line.
         - Include: TypeScript types, error handling, input validation, comments for complex logic.
         - Always explain TIME/SPACE COMPLEXITY for algorithms.

@@ -598,6 +598,8 @@ export async function POST(req: NextRequest) {
         - Each message is INDEPENDENT — answer ONLY the current technical question.
         - NO "As I mentioned before" or "Previously we discussed" — EVER.
         - If asked for code, provide COMPLETE, RUNNABLE, PRODUCTION-READY code.
+        - NEVER TRUNCATE CODE. Provide the FULL, complete source code regardless of length.
+        - NEVER use placeholders like "// ... rest of the code" or "// ... existing code". Write out every single line.
         - Include: TypeScript types, error handling, input validation, comments for complex logic.
         - Always explain TIME/SPACE COMPLEXITY for algorithms.
         - Always mention SECURITY CONSIDERATIONS.

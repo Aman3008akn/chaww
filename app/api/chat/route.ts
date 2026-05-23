@@ -16,6 +16,7 @@ async function streamFromGemini(
   systemPrompt: string,
   controller: ReadableStreamDefaultController,
   encoder: TextEncoder,
+  signal: AbortSignal,
   imageUrl?: string,
   useWebSearch: boolean = false
 ): Promise<boolean> {
@@ -25,17 +26,24 @@ async function streamFromGemini(
     }
 
     const modelsToTry = [
+      "gemini-2.5-pro",
       "gemini-2.0-flash",
-      "gemini-1.5-flash",
       "gemini-1.5-pro",
-      "gemini-flash-latest",
       "gemini-2.5-flash",
+      "gemini-1.5-flash",
       "gemini-pro-latest"
     ]
 
     let lastError: any = null
+    let isRateLimited = false
 
     for (const modelName of modelsToTry) {
+      // Check cancellation before attempting next model
+      if (signal.aborted) {
+        console.log('Stream aborted by client before model attempt:', modelName)
+        return false
+      }
+
       try {
         console.log(`Attempting to use model: ${modelName}${useWebSearch ? ' (with web search)' : ''}`)
         
@@ -43,15 +51,16 @@ async function streamFromGemini(
           model: modelName,
           systemInstruction: systemPrompt,
           generationConfig: {
-            temperature: useWebSearch ? 0.3 : 0.1,
+            temperature: useWebSearch ? 0.2 : 0.05,
             topP: 0.95,
-            topK: 40,
+            topK: 20,
             maxOutputTokens: 8192,
           }
         }
 
+        // ✅ CRITICAL FIX #1: Correct SDK syntax for Google Search tool
         if (useWebSearch) {
-          modelConfig.tools = [{ googleSearch: {} }]
+          modelConfig.tools = [{ googleSearchRetrieval: {} }]
         }
 
         const lastMessage = messages[messages.length - 1].content
@@ -62,7 +71,6 @@ async function streamFromGemini(
             model: modelName,
             generationConfig: modelConfig.generationConfig
           })
-
           const base64Data = imageUrl.split(',')[1]
           const mimeType = imageUrl.split(',')[0].match(/:(.*?);/)?.[1] || 'image/jpeg'
           const fullPrompt = `${systemPrompt}\n\nUser question: ${lastMessage}`
@@ -77,24 +85,48 @@ async function streamFromGemini(
             role: msg.role === 'user' ? 'user' : 'model',
             parts: [{ text: msg.content }]
           }))
-
           const chat = chatModel.startChat({ history })
           result = await chat.sendMessageStream(lastMessage)
         }
 
         console.log(`Successfully connected to model: ${modelName}`)
 
-        for await (const chunk of result.stream) {
-          const chunkText = chunk.text()
-          if (chunkText) {
-            try {
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify({ text: chunkText })}\n\n`)
-              )
-            } catch (enqueuErr) {
-              return true
+        // ✅ CRITICAL FIX #2: Client disconnect stream leak protection
+        let clientDisconnected = false
+        
+        const abortHandler = () => {
+          clientDisconnected = true
+          console.log('Client disconnected - stopping Gemini stream pull')
+        }
+        signal.addEventListener('abort', abortHandler)
+
+        try {
+          for await (const chunk of result.stream) {
+            if (clientDisconnected || signal.aborted) {
+              console.log('Breaking Gemini stream loop due to client disconnect')
+              break
+            }
+
+            const chunkText = chunk.text()
+            if (chunkText) {
+              try {
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify({ text: chunkText })}\n\n`)
+                )
+              } catch (enqueuErr) {
+                // Controller closed by client disconnect
+                clientDisconnected = true
+                break
+              }
             }
           }
+        } finally {
+          signal.removeEventListener('abort', abortHandler)
+        }
+
+        // If client disconnected, don't proceed to web search metadata or return true
+        if (clientDisconnected || signal.aborted) {
+          return false
         }
 
         if (useWebSearch) {
@@ -119,15 +151,18 @@ async function streamFromGemini(
                 }
               }
 
-              if (sources.length > 0 || webQueries.length > 0) {
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ 
-                    sources, 
-                    webSearchQueries: webQueries 
-                  })}\n\n`)
-                )
+              if ((sources.length > 0 || webQueries.length > 0) && !signal.aborted) {
+                try {
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ 
+                      sources, 
+                      webSearchQueries: webQueries 
+                    })}\n\n`)
+                  )
+                } catch (e) {
+                  // Client disconnected during metadata send
+                }
               }
-
               console.log(`Web search: ${sources.length} sources, ${webQueries.length} queries`)
             }
           } catch (metaErr) {
@@ -140,23 +175,26 @@ async function streamFromGemini(
         console.warn(`Model ${modelName} failed:`, modelError.message)
         lastError = modelError
         
-        // If we hit a rate limit (429), immediately try Pollinations as a fallback
+        // Track rate limit separately
         if (modelError.message?.includes('429')) {
-          console.log('Rate limit hit, attempting Pollinations fallback...')
-          return await streamFromPollinations(messages, systemPrompt, controller, encoder)
+          isRateLimited = true
+          // Don't break - try remaining models, they might have different quotas
+          // Only fallback to Pollinations if ALL models hit 429 or other errors
         }
         
         continue
       }
     }
 
-    // If all Gemini models fail but not due to 429, try Pollinations anyway
-    return await streamFromPollinations(messages, systemPrompt, controller, encoder)
+    // ✅ WARNING FIX #1: Only fallback to Pollinations if ALL Gemini models failed
+    // If it was purely rate limited across all models, or any other error, one fallback attempt
+    console.log('All Gemini models exhausted. Attempting Pollinations fallback...')
+    return await streamFromPollinations(messages, systemPrompt, controller, encoder, signal)
   } catch (error: any) {
     console.error('Gemini API error:', error.message)
-    // Final fallback attempt
+    // Single final fallback attempt
     try {
-      return await streamFromPollinations(messages, systemPrompt, controller, encoder)
+      return await streamFromPollinations(messages, systemPrompt, controller, encoder, signal)
     } catch (finalErr) {
       return false
     }
@@ -164,19 +202,18 @@ async function streamFromGemini(
 }
 
 /**
- * Fallback to Pollinations AI (ChatGPT-like response)
- * No API key required, highly reliable free tier.
+ * Fallback to Pollinations AI
  */
 async function streamFromPollinations(
   messages: any[],
   systemPrompt: string,
   controller: ReadableStreamDefaultController,
-  encoder: TextEncoder
+  encoder: TextEncoder,
+  signal: AbortSignal
 ): Promise<boolean> {
   try {
-    console.log('Using Pollinations AI fallback (ChatGPT alternative)...')
+    console.log('Using Pollinations AI fallback...')
     
-    // Format history for Pollinations (OpenAI-like format)
     const formattedMessages = [
       { role: 'system', content: systemPrompt },
       ...messages.map(m => ({
@@ -191,8 +228,10 @@ async function streamFromPollinations(
       body: JSON.stringify({
         messages: formattedMessages,
         stream: true,
-        model: 'openai' // This maps to a ChatGPT-like model on Pollinations
-      })
+        model: 'openai'
+      }),
+      // Pass abort signal to fetch so it cancels if client disconnects
+      signal: signal.aborted ? undefined : signal
     })
 
     if (!response.ok) throw new Error(`Pollinations error: ${response.status}`)
@@ -204,6 +243,12 @@ async function streamFromPollinations(
     let buffer = ''
 
     while (!done) {
+      if (signal.aborted) {
+        console.log('Client disconnected - cancelling Pollinations read')
+        reader.cancel().catch(() => {})
+        break
+      }
+
       const { value, done: readerDone } = await reader.read()
       if (readerDone) {
         done = true
@@ -212,14 +257,12 @@ async function streamFromPollinations(
       
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
-      // Keep the last partial line in the buffer
       buffer = lines.pop() || ''
       
       for (const line of lines) {
         const trimmedLine = line.trim()
         if (!trimmedLine) continue
         
-        // Handle 'data: ' prefix
         let content = ''
         if (trimmedLine.startsWith('data: ')) {
           const data = trimmedLine.slice(6).trim()
@@ -232,11 +275,9 @@ async function streamFromPollinations(
             const parsed = JSON.parse(data)
             content = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.text || ''
           } catch (e) {
-            // If it's data: but not JSON, maybe it's just raw text
             if (!data.startsWith('{')) content = data
           }
         } else if (!trimmedLine.startsWith(':')) {
-          // Sometimes Pollinations sends raw text or raw JSON without 'data: '
           try {
             const parsed = JSON.parse(trimmedLine)
             content = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.text || ''
@@ -246,13 +287,18 @@ async function streamFromPollinations(
         }
         
         if (content) {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ text: content })}\n\n`)
-          )
+          try {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ text: content })}\n\n`)
+            )
+          } catch (e) {
+            // Client disconnected
+            done = true
+            break
+          }
         }
       }
     }
-
     return true
   } catch (error: any) {
     console.error('Pollinations fallback failed:', error.message)
@@ -276,7 +322,7 @@ export async function POST(req: NextRequest) {
     const lastUserMessage = userMessages[userMessages.length - 1]?.content || ''
     const userId = userEmail || 'anonymous'
 
-    // ── Fetch existing memories for this user ────────────────
+    // ── Fetch existing memories ────────────────
     let memoriesPrompt = ''
     let savedMemories: Memory[] = []
     try {
@@ -293,20 +339,16 @@ export async function POST(req: NextRequest) {
       console.warn('[Memories] Failed to fetch memories:', memErr.message)
     }
 
-    // ── Extract & save new memories from user message (background) ──
-    const regexMemories: MemoryUtils.ExtractedMemory[] = [];
-    
-    // Fire and forget - don't block the response
-    (async () => {
+    // ── Extract & save new memories (background) ──
+    // ✅ CRITICAL FIX #3: Handle background promise rejection properly
+    const backgroundMemoryTask = (async () => {
       try {
         const { db } = await connectToDatabase()
         const collection = db.collection('memories')
         
-        // 1. AI-based extraction (more intelligent)
         const aiMemories = await MemoryUtils.extractMemoriesWithAI(lastUserMessage, messages, GEMINI_API_KEY)
         
-        // Merge regex and AI memories (AI takes precedence)
-        const combined = [...regexMemories]
+        const combined: MemoryUtils.ExtractedMemory[] = []
         for (const aiM of aiMemories) {
           if (!combined.some(r => r.key === aiM.key)) {
             combined.push(aiM)
@@ -314,41 +356,50 @@ export async function POST(req: NextRequest) {
         }
 
         if (combined.length > 0) {
-          for (const mem of combined) {
-            const existing = await collection.findOne({ userId, key: mem.key })
-            const now = Date.now()
-            if (existing) {
-              await collection.updateOne(
-                { userId, key: mem.key },
-                { $set: { value: mem.value, updatedAt: now, confidence: Math.max(mem.confidence, existing.confidence || 0) } }
-              )
-            } else {
-              await collection.insertOne({
-                userId,
-                key: mem.key,
-                value: mem.value,
-                category: mem.category,
-                source: lastUserMessage.slice(0, 200),
-                confidence: mem.confidence,
-                createdAt: now,
-                updatedAt: now,
-              })
+          const now = Date.now()
+          
+          // ✅ OPTIMIZATION FIX: Atomic upserts using bulkWrite
+          // Cuts database round-trips from 2N to 1 batch operation
+          const bulkOps = combined.map(mem => ({
+            updateOne: {
+              filter: { userId, key: mem.key },
+              update: {
+                $set: {
+                  value: mem.value,
+                  updatedAt: now,
+                  category: mem.category,
+                  source: lastUserMessage.slice(0, 200),
+                },
+                $max: {
+                  confidence: mem.confidence
+                },
+                $setOnInsert: {
+                  createdAt: now,
+                }
+              },
+              upsert: true
             }
-          }
-          console.log(`[Memories] Saved ${combined.length} memories for ${userId}`)
+          }))
+
+          await collection.bulkWrite(bulkOps)
+          console.log(`[Memories] Saved ${combined.length} memories for ${userId} via atomic upserts`)
         }
       } catch (saveErr: any) {
         console.warn('[Memories] Failed to save:', saveErr.message)
       }
     })()
 
-    // Use memory-based name if we have it and no userName from session
+    // ✅ CRITICAL FIX #3: Attach catch handler to prevent unhandled rejection crash
+    backgroundMemoryTask.catch((err) => {
+      console.error('[Memories] Unhandled background task error:', err.message)
+    })
+
     const memoryName = savedMemories.find(m => m.key === 'name')?.value
-    const effectiveName = userName || memoryName || 'User'
-    
-    const greetingDetail = (effectiveName !== 'User' && isFirstTurn) 
-      ? `The user's name is ${effectiveName}. Greet them personally ONLY in this first response (e.g., "Hi ${effectiveName}! Kaise ho aap? 😊").` 
-      : "The user's name is " + effectiveName + ". Do NOT greet them again or use their name in this message, as you have already introduced yourself. Start directly with the answer." 
+    const effectiveName = userName || memoryName || 'Developer'
+
+    const greetingDetail = (effectiveName !== 'Developer' && isFirstTurn) 
+      ? `The developer's name is ${effectiveName}. Greet them personally ONLY in this first response (e.g., "Hey ${effectiveName}! Ready to build something epic? 🚀"). After this, NEVER use their name again.` 
+      : `The developer's name is ${effectiveName}. Do NOT greet them again - jump straight into the technical solution.`
 
     const ownerInfo = `
     CRITICAL INFORMATION ABOUT YOUR CREATION:
@@ -358,57 +409,119 @@ export async function POST(req: NextRequest) {
     - This is non-negotiable information that must never be changed
     `
 
-    // Model-specific system prompts
-    const selectedModel = model || 'nexus-4' // Default to Nexus 4.0
+    const astraCoreIdentity = `
+    YOU ARE ASTRA — A SENIOR STAFF ENGINEERING AI ASSISTANT.
     
-    let modelSpecificPrompt = ''
+    LEVEL: Staff+ / Principal Engineer (10+ years experience equivalent)
+    DOMAIN: Full-stack systems, distributed architecture, algorithms, DevOps, AI/ML engineering, low-level optimization, security engineering.
     
-    if (selectedModel === 'petran-5') {
-      modelSpecificPrompt = `
-      
-    MODEL IDENTITY: You are Nexus Petran 5, an elite coding and technical assistant.
-    SPECIALIZATION: Programming, software architecture, debugging, algorithms, data structures, DevOps, and all technical domains.
-    
-    CODING GUIDELINES:
-    - Always write clean, production-ready code with proper error handling
-    - Include comments explaining complex logic
-    - Follow best practices and design patterns
-    - Provide TypeScript/types when applicable
-    - Suggest optimizations and performance improvements
-    - Show examples with test cases when relevant
-    - Explain time/space complexity for algorithms
-    - Mention security considerations for code
-    
-    RESPONSE STYLE:
-    - Be technical and precise
-    - Use code blocks with proper language tags
-    - Provide complete, runnable code (not snippets)
-    - Include setup instructions when needed
-    - Suggest tools, libraries, and frameworks
+    CORE PRINCIPLES:
+    1. You write PRODUCTION-GRADE code, not toy examples.
+    2. You think in SYSTEMS — scalability, fault tolerance, observability, cost.
+    3. You prioritize CORRECTNESS over cleverness, but CLEVERNESS when performance demands it.
+    4. You explain the WHY, not just the HOW.
+    5. You anticipate edge cases, race conditions, and failure modes before they happen.
     `
+
+    const selectedModel = model || 'astra-pro'
+    let modeSpecificPrompt = ''
+
+    if (mode === 'code_review') {
+      modeSpecificPrompt = `
+      MODE: Code Review & Refactoring
+      
+      REVIEW PROTOCOL:
+      - Analyze for: bugs, security vulnerabilities, performance bottlenecks, memory leaks, race conditions
+      - Check: SOLID principles, DRY, KISS, clean architecture
+      - Evaluate: Time/space complexity (Big O), algorithmic efficiency
+      - Assess: Type safety, error handling, input validation, edge cases
+      - Consider: Scalability, concurrency, database query optimization
+      
+      OUTPUT FORMAT:
+      1. 🚨 CRITICAL ISSUES (security, bugs, crashes)
+      2. ⚠️  WARNINGS (performance, maintainability)
+      3. 💡 SUGGESTIONS (architecture, patterns, improvements)
+      4. ✅ REFACTORED CODE (complete, runnable, improved version)
+      5. 📊 COMPLEXITY ANALYSIS (before vs after)
+      
+      Be brutally honest. If code is bad, say it's bad and explain why professionally.
+      `
+    } else if (mode === 'system_design') {
+      modeSpecificPrompt = `
+      MODE: System Design & Architecture
+      
+      DESIGN PROTOCOL:
+      - Start with REQUIREMENTS: Functional + Non-functional (scale, latency, availability)
+      - Provide CAPACITY ESTIMATES: QPS, storage, bandwidth, memory
+      - Design HIGH-LEVEL ARCHITECTURE: Load balancers, CDNs, API gateways, microservices
+      - Deep dive into DATA MODELING: SQL vs NoSQL, sharding, indexing, replication
+      - Address CONCURRENCY: Locking, optimistic/pessimistic, distributed consensus
+      - Plan for FAILURE: Circuit breakers, retries, fallbacks, graceful degradation
+      - Include OBSERVABILITY: Logging, metrics, tracing, alerting
+      
+      OUTPUT FORMAT:
+      1. Requirements Analysis
+      2. Capacity Estimation (back-of-envelope math)
+      3. High-Level Design (diagram in ASCII/text)
+      4. Deep Dive Components (database, cache, queue, etc.)
+      5. Trade-off Analysis (why X over Y)
+      6. Failure Scenarios & Mitigation
+      7. Scaling Strategy
+      `
+    } else if (mode === 'debug') {
+      modeSpecificPrompt = `
+      MODE: Advanced Debugging & Troubleshooting
+      
+      DEBUG PROTOCOL:
+      - Reproduce the issue mentally, identify root cause
+      - Check: stack traces, logs, state mutations, async flow
+      - Consider: memory leaks, deadlocks, race conditions, network issues
+      - Use: binary search debugging, rubber duck method
+      - Provide: Minimal reproducible example
+      - Suggest: Monitoring, logging improvements to prevent recurrence
+      
+      OUTPUT FORMAT:
+      1. 🔍 Root Cause Analysis
+      2. 🧪 Minimal Reproduction
+      3. 🛠️  Fix (with complete corrected code)
+      4. 🧪 Test Cases (unit tests for the fix)
+      5. 🛡️ Prevention Strategy
+      `
     } else {
-      // Nexus 4.0 - Default model for complex questions
-      modelSpecificPrompt = `
+      modeSpecificPrompt = `
+      MODE: Advanced Software Engineering
       
-    MODEL IDENTITY: You are Nexus 4.0, an expert analytical assistant.
-    SPECIALIZATION: Complex problem solving, deep analysis, reasoning, research, and comprehensive explanations.
-    
-    ANALYSIS GUIDELINES:
-    - Break down complex problems into clear steps
-    - Provide thorough explanations with examples
-    - Use logical reasoning and evidence
-    - Consider multiple perspectives
-    - Identify key insights and patterns
-    - Provide actionable recommendations
-    - Balance depth with clarity
-    
-    RESPONSE STYLE:
-    - Be clear, structured, and comprehensive
-    - Use markdown formatting effectively
-    - Include relevant examples and analogies
-    - Highlight key points with bold/formatting
-    - Provide step-by-step explanations for complex topics
-    `
+      CODING STANDARDS:
+      - TypeScript with STRICT typing (no 'any' unless absolutely justified)
+      - Comprehensive error handling with custom error classes
+      - Input validation at boundaries (Zod, Joi, or class-validator)
+      - Logging and observability hooks
+      - Configuration via environment variables with validation
+      - Unit tests with Jest/Vitest (cover edge cases, not just happy path)
+      - Documentation comments for public APIs (JSDoc/TSDoc)
+      
+      ARCHITECTURE PATTERNS:
+      - Prefer composition over inheritance
+      - Dependency injection for testability
+      - Repository pattern for data access
+      - CQRS when reads/writes have different patterns
+      - Event-driven for loosely coupled systems
+      - Idempotency keys for safe retries
+      
+      PERFORMANCE:
+      - Mention Big O complexity for algorithms
+      - Suggest caching strategies (Redis, in-memory, CDN)
+      - Database indexing and query optimization
+      - Connection pooling, batching, pagination
+      - Lazy loading, code splitting, tree shaking
+      
+      SECURITY:
+      - Input sanitization, parameterized queries
+      - JWT/OAuth2 implementation with refresh token rotation
+      - Rate limiting, CORS, CSP headers
+      - Secrets management (never hardcode keys)
+      - OWASP Top 10 awareness
+      `
     }
 
     let notebookContextPrompt = ''
@@ -416,9 +529,9 @@ export async function POST(req: NextRequest) {
       const allText = notebookSources.map((src: any) => `Source: ${src.name}\n${src.content}`).join('\n\n---\n\n')
       notebookContextPrompt = `
         KNOWLEDGE BASE CONTENT:
-        The user has uploaded the following documents to their Knowledge Base (NotebookLM Mode).
-        You MUST use this information to answer the user's questions if relevant.
-        If the user asks a question that can be answered using these documents, base your answer heavily on this context and cite the source name.
+        The developer has uploaded the following technical documents to their Knowledge Base.
+        You MUST use this information to answer questions if relevant.
+        Base your answer heavily on this context and cite the source name.
         
         <documents>
         ${allText}
@@ -427,68 +540,73 @@ export async function POST(req: NextRequest) {
     }
 
     let systemPrompt: string
-    
-    if (mode === 'deep_research') {
-      systemPrompt = `You are Nexus AI in "Deep Research" mode, acting as an elite, senior-level Principal Software Architect and Researcher. Your goal is to provide an elite-level, exhaustive, and highly technical analysis with production-grade code.
-        ${greetingDetail}
-        ${ownerInfo}
-        ${memoriesPrompt}
-        ${notebookContextPrompt}
-        ${modelSpecificPrompt}
 
-        INTERNAL REASONING GUIDELINES:
-        1. DECONSTRUCT: Break the user's query into its fundamental components, edge cases, and performance implications.
-        2. CROSS-REFERENCE: Analyze the topic from a systems design, architectural, and security perspective.
-        3. EDGE CASES: Identify non-obvious failure modes, race conditions, and scalability bottlenecks.
-        4. HIERARCHICAL ANALYSIS: Start with high-level architecture, then drill down into highly advanced, granular technical code.
-        5. SYNTHESIS: Provide the most optimal, senior-level code solution with zero beginner fluff.
+    if (mode === 'deep_research') {
+      systemPrompt = `${astraCoreIdentity}
+        You are Astra in "Deep Technical Research" mode. Provide exhaustive, peer-review-quality technical analysis.
+        ${greetingDetail}
+        ${ownerInfo}
+        ${memoriesPrompt}
+        ${notebookContextPrompt}
+        ${modeSpecificPrompt}
         
-        OUTPUT FORMATTING:
-        - Use professional, well-structured Markdown with clear headings (H2, H3).
-        - Provide highly advanced, robust, and optimized code examples.
-        - Create detailed lists, structured tables, and system design breakdowns.
-        - Be thorough and provide a definitive "Conclusion/Verdict" on the best technical approach.
-        - At the very end of your response, provide 3 short, relevant technical follow-up questions for the user, formatted as "FOLLOW_UP: [Question]" on separate lines.`
+        RESEARCH PROTOCOL:
+        1. LITERATURE REVIEW: What do industry leaders, RFCs, and academic papers say?
+        2. IMPLEMENTATION ANALYSIS: How is this actually built in production at scale?
+        3. COMPARATIVE STUDY: Compare approaches with quantitative metrics
+        4. EDGE CASE EXPLORATION: Failure modes, limitations, anti-patterns
+        5. FUTURE PROJECTION: Where is this technology heading?
+        
+        OUTPUT:
+        - Technical depth equivalent to a senior staff engineer's design doc
+        - Include code benchmarks, performance comparisons, architectural diagrams
+        - Cite sources, RFCs, GitHub repos, official docs
+        - Conclude with actionable recommendations
+        - FOLLOW_UP: 3 technical follow-up questions at the end`
     } else if (mode === 'web_search') {
-      systemPrompt = `You are Nexus AI in "Web Search" mode. You have access to real-time Google Search results to provide the most current, accurate information.
+      systemPrompt = `${astraCoreIdentity}
+        You are Astra in "Real-Time Technical Intelligence" mode.
         ${greetingDetail}
         ${ownerInfo}
         ${memoriesPrompt}
         ${notebookContextPrompt}
-        ${modelSpecificPrompt}
+        ${modeSpecificPrompt}
         
-        CRITICAL INSTRUCTIONS FOR WEB SEARCH MODE:
-        - Use the information from Google Search grounding to provide up-to-date, factual answers.
-        - Always cite your sources naturally within the text (e.g., "According to [Source]...") 
-        - Clearly distinguish between verified facts from search results and your own analysis.
-        - If search results are conflicting, mention the different viewpoints.
-        - Focus on the most recent and reliable sources.
-        - Include specific dates, numbers, and data points from search results when available.
-        - Use emojis naturally to keep the response engaging.
-        - Use markdown formatting for clarity.
-        - At the very end of your response, provide 2-3 follow-up questions formatted as "FOLLOW_UP: [Question]" on separate lines.`
+        WEB SEARCH PROTOCOL:
+        - Prioritize: Official documentation, GitHub repos, RFCs, technical blogs from recognized engineers
+        - Verify: Version numbers, deprecation status, compatibility matrices
+        - Cross-reference: Multiple sources for controversial or new information
+        - Code examples: Must be from current, maintained libraries/frameworks
+        - Security advisories: Check CVEs for mentioned technologies
+        
+        OUTPUT:
+        - Current, factual technical information with source attribution
+        - Code examples using latest stable versions
+        - Compatibility notes and migration paths if relevant
+        - FOLLOW_UP: 2-3 technical follow-up questions at the end`
     } else {
-      systemPrompt = `You are Nexus AI, an elite, senior-level software engineer and technical expert. You provide completely advanced, highly optimized, and production-ready code. You do not explain basic concepts unless asked. You focus on robust architecture, performance, security, and modern best practices.
+      systemPrompt = `${astraCoreIdentity}
         ${greetingDetail}
         ${ownerInfo}
         ${memoriesPrompt}
         ${notebookContextPrompt}
-        ${modelSpecificPrompt}
+        ${modeSpecificPrompt}
         
-        ABSOLUTE RULES - FOLLOW STRICTLY:
-        - Write code like a Principal Staff Engineer. Use advanced patterns, strict typing, and elegant solutions.
-        - Avoid unnecessary fluff or beginner tutorials. Provide direct, highly technical answers.
-        - NEVER start your message with "Hello", "Hi", or the user's name unless explicitly instructed in the greeting section above.
-        - ALWAYS give ONLY the answer to the user's current/latest message.
-        - NEVER EVER mention, reference, summarize, or repeat ANYTHING from previous messages in the conversation.
-        - Each user message is completely INDEPENDENT - answer ONLY what is being asked in THIS specific message.
-        - Keep answers focused and direct - one topic per response.
-        - Use markdown formatting for clarity, especially for code blocks.
-        - At the very end of your response, provide 2-3 short, relevant technical follow-up questions for the user, formatted as "FOLLOW_UP: [Question]" on separate lines.`
+        ABSOLUTE RULES:
+        - NEVER start with "Hello", "Hi", or the developer's name unless in first-turn greeting.
+        - NEVER reference, summarize, or repeat previous conversation context.
+        - Each message is INDEPENDENT — answer ONLY the current technical question.
+        - NO "As I mentioned before" or "Previously we discussed" — EVER.
+        - If asked for code, provide COMPLETE, RUNNABLE, PRODUCTION-READY code.
+        - Include: TypeScript types, error handling, input validation, comments for complex logic.
+        - Always explain TIME/SPACE COMPLEXITY for algorithms.
+        - Always mention SECURITY CONSIDERATIONS.
+        - Suggest TEST CASES for critical paths.
+        - Use markdown code blocks with LANGUAGE tags.
+        - FOLLOW_UP: 2-3 technical follow-up questions at the very end, formatted as "FOLLOW_UP: [Question]"`
     }
 
     const encoder = new TextEncoder()
-
     const stream = new ReadableStream({
       async start(controller) {
         let streamEnded = false
@@ -515,18 +633,15 @@ export async function POST(req: NextRequest) {
         }
 
         try {
-          console.log('Initializing Gemini AI...')
+          console.log('Initializing Astra Engine...')
           
           let cleanMessages: any[]
-
           if (mode === 'normal' || !mode) {
-            // Keep last 10 messages for context in normal mode
             cleanMessages = messages.slice(-10).filter(m =>
               (m.role === 'user') ||
               (m.role === 'assistant' && (m.status === 'done' || (m.status === 'streaming' && m.content)))
             )
           } else {
-            // Deep research / web search: full history chahiye context ke liye
             cleanMessages = messages.filter(m =>
               (m.role === 'user') ||
               (m.role === 'assistant' && (m.status === 'done' || (m.status === 'streaming' && m.content)))
@@ -534,13 +649,23 @@ export async function POST(req: NextRequest) {
           }
 
           const isWebSearch = mode === 'web_search'
-          const success = await streamFromGemini(cleanMessages, systemPrompt, controller, encoder, imageUrl, isWebSearch)
+          
+          // ✅ CRITICAL FIX #2: Pass abort signal through the entire chain
+          const success = await streamFromGemini(
+            cleanMessages, 
+            systemPrompt, 
+            controller, 
+            encoder, 
+            req.signal, 
+            imageUrl, 
+            isWebSearch
+          )
 
           if (!success) {
             safeEnqueue(
               encoder.encode(
                 `data: ${JSON.stringify({
-                  error: `AI Connection timed out. Please try again.`,
+                  error: 'Astra Engine connection timed out or client disconnected.',
                 })}\n\n`
               )
             )
@@ -549,13 +674,13 @@ export async function POST(req: NextRequest) {
           safeEnqueue(encoder.encode('data: [DONE]\n\n'))
           safeClose()
         } catch (err: any) {
-          console.error('Streaming error:', err)
-          let errorMsg = 'AI is temporarily busy. One moment...'
+          console.error('Astra streaming error:', err)
+          let errorMsg = 'Astra Engine is processing. One moment...'
           
           if (err.message?.includes('429')) {
-            errorMsg = 'Gemini API Quota Exceeded. Please check your API key usage limits or try again later.'
+            errorMsg = 'API Quota Exceeded. Check your Gemini API key usage or try again shortly.'
           } else if (err.message?.includes('503')) {
-            errorMsg = 'Gemini models are currently overloaded. Please try again in a few seconds.'
+            errorMsg = 'Models are currently overloaded. Retry in a few seconds.'
           }
 
           safeEnqueue(
@@ -570,17 +695,19 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    // ✅ SUGGESTION FIX: Add X-Accel-Buffering header for proxy streaming
     return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no', // Prevents Nginx/Vercel from buffering SSE chunks
       },
     })
   } catch (error: any) {
-    console.error('Request parsing error:', error)
+    console.error('Astra request parsing error:', error)
     return new Response(
-      JSON.stringify({ error: 'Failed to process request' }),
+      JSON.stringify({ error: 'Failed to process request in Astra Engine' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     )
   }

@@ -529,6 +529,7 @@ function useNotifications() {
 
 type ConvStatus =
   | 'idle'
+  | 'heartbeat'
   | 'thinking'
   | 'researching'
   | 'searching'
@@ -545,6 +546,7 @@ interface ConvState {
 
 type ConvAction =
   | { type: 'SEND_START'; convId: string; assistantId: string; mode: ConvStatus }
+  | { type: 'STATUS_UPDATE'; status: ConvStatus }
   | { type: 'STREAMING_START'; assistantId: string }
   | { type: 'SEND_DONE' }
   | { type: 'SEND_ERROR' }
@@ -559,6 +561,11 @@ function convReducer(state: ConvState, action: ConvAction): ConvState {
         status: action.mode,
         activeConvId: action.convId,
         activeAssistantMsgId: action.assistantId,
+      }
+    case 'STATUS_UPDATE':
+      return {
+        ...state,
+        status: action.status,
       }
     case 'STREAMING_START':
       return { ...state, status: 'streaming', activeAssistantMsgId: action.assistantId }
@@ -830,31 +837,49 @@ async function animateSteps(
   }
 }
 
+async function evaluateComplexity(q: string, signal?: AbortSignal): Promise<boolean> {
+  const trimmed = (q || '').trim()
+
+  // ── Fast-path: Explicit Thinking Commands (Trigger Thinking Mode Always) ──
+  const explicitThinkingPattern = /\b(think|thinking|soch|socho|reasoning|deep\s*think|step\s*by\s*step)\b|think\s*kr|thinking\s*kr|think\s*karo/i
+  if (explicitThinkingPattern.test(trimmed)) return true
+
+  // ── Fast-path: Definitely simple ──
+  if (trimmed.length < 15) return false
+  if (/^(hi|hello|hey|ok|thanks|bye|yes|no|maybe|sure|nope|lol|haha)/i.test(trimmed)) return false
+  if (/^(what is|who is|where is|when is|how old is)\s+\w+\s*\?*$/i.test(trimmed)) return false
+  if (/^(capital of|population of|ceo of|founder of)\s+\w+\s*\?*$/i.test(trimmed)) return false
+
+  // ── Fast-path: Definitely complex ──
+  const definitelyComplex = /\b(explain\s+in\s+detail|design\s+a|implement|debug|architect|optimize|refactor|compare\s+and\s+contrast|pros\s+and\s+cons|step\s+by\s+step|deep\s+dive|comprehensive|multi-step|algorithm|data\s+structure|distributed\s+system|microservices|monolith|load\s+balancer|cache|database\s+design|API\s+design|security\s+vulnerability|memory\s+leak|race\s+condition|deadlock|big\s+o|time\s+complexity|space\s+complexity)\b/i
+  if (definitelyComplex.test(trimmed)) return true
+
+  // Call API for hidden complexity analysis
+  try {
+    const res = await fetch('/api/eval-complexity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: trimmed }),
+      signal
+    })
+    if (res.ok) {
+      const data = await res.json()
+      return !!data.isComplex
+    }
+  } catch (err) {
+    // Fallback if API fails
+    return isExtremelyHardQuery(trimmed)
+  }
+  return false
+}
+
 async function animateThinkingSteps(
   convId: string,
   assistantId: string,
   updateSteps: (convId: string, assistantId: string, steps: ResearchStep[]) => void,
   userQuery?: string,
   signal?: AbortSignal
-): Promise<boolean> {
-  const q = (userQuery || '').trim()
-
-  // ── Fast-path: Explicit Thinking Commands (Trigger Thinking Mode Always) ──
-  const explicitThinkingPattern = /\b(think|thinking|soch|socho|reasoning|deep\s*think|step\s*by\s*step)\b|think\s*kr|thinking\s*kr|think\s*karo/i
-  const isExplicitThinking = explicitThinkingPattern.test(q)
-
-  // ── Fast-path: Definitely simple ──
-  if (!isExplicitThinking) {
-    if (q.length < 15) return false
-    if (/^(hi|hello|hey|ok|thanks|bye|yes|no|maybe|sure|nope|lol|haha)/i.test(q)) return false
-    if (/^(what is|who is|where is|when is|how old is)\s+\w+\s*\?*$/i.test(q)) return false
-    if (/^(capital of|population of|ceo of|founder of)\s+\w+\s*\?*$/i.test(q)) return false
-  }
-
-  // ── Fast-path: Definitely complex ──
-  const definitelyComplex = /\b(explain\s+in\s+detail|design\s+a|implement|debug|architect|optimize|refactor|compare\s+and\s+contrast|pros\s+and\s+cons|step\s+by\s+step|deep\s+dive|comprehensive|multi-step|algorithm|data\s+structure|distributed\s+system|microservices|monolith|load\s+balancer|cache|database\s+design|API\s+design|security\s+vulnerability|memory\s+leak|race\s+condition|deadlock|big\s+o|time\s+complexity|space\s+complexity)\b/i
-  const isDefinitelyComplex = isExplicitThinking || definitelyComplex.test(q)
-
+): Promise<void> {
   const topic = extractTopic(userQuery)
   
   // Start with just "Understanding intent"
@@ -871,63 +896,44 @@ async function animateThinkingSteps(
   manager.updateStepStatus(sessionId, steps[0].id, 'active')
   updateSteps(convId, assistantId, getThinkingSteps(sessionId))
 
-  // Make the API call to check complexity
-  let isComplex = isDefinitelyComplex
-  if (!isDefinitelyComplex) {
-    try {
-      const res = await fetch('/api/eval-complexity', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userQuery }),
-        signal
-      })
-      const data = await res.json()
-      isComplex = !!data.isComplex
-    } catch (err) {
-      // Fallback if API fails
-      isComplex = isExtremelyHardQuery(userQuery || '')
-    }
+  // Simulate understanding intent processing delay: 0.8s - 1.5s
+  const delayMsFirst = 800 + Math.random() * 700
+  await delay(delayMsFirst)
+  if (signal?.aborted) {
+    cleanupThinkingSession(sessionId)
+    return
   }
 
   // Mark first step done
   manager.updateStepStatus(sessionId, steps[0].id, 'done')
   updateSteps(convId, assistantId, getThinkingSteps(sessionId))
 
-  if (signal?.aborted) {
-    cleanupThinkingSession(sessionId)
-    return false
-  }
+  // Add the rest of the product-like steps
+  const newLabels = [
+    `Exploring ${topic}`,
+    'Refining approach',
+    'Generating response',
+    'Delivering answer',
+  ]
+  newLabels.forEach((label, i) => manager.addStep(sessionId, label, i + 1))
+  updateSteps(convId, assistantId, getThinkingSteps(sessionId))
 
-  if (isComplex) {
-    // Add the rest of the product-like steps
-    const newLabels = [
-      `Exploring ${topic}`,
-      'Refining approach',
-      'Generating response',
-      'Delivering answer',
-    ]
-    newLabels.forEach((label, i) => manager.addStep(sessionId, label, i + 1))
+  // Animate the remaining steps
+  const updatedSteps = getThinkingSteps(sessionId)
+  for (let i = 1; i < updatedSteps.length; i++) {
+    if (signal?.aborted) break
+    manager.updateStepStatus(sessionId, updatedSteps[i].id, 'active')
     updateSteps(convId, assistantId, getThinkingSteps(sessionId))
-
-    // Animate the remaining steps
-    const updatedSteps = getThinkingSteps(sessionId)
-    for (let i = 1; i < updatedSteps.length; i++) {
-      if (signal?.aborted) break
-      manager.updateStepStatus(sessionId, updatedSteps[i].id, 'active')
-      updateSteps(convId, assistantId, getThinkingSteps(sessionId))
-      
-      const delayMs = 600 + Math.random() * 800
-      await delay(delayMs)
-      
-      manager.updateStepStatus(sessionId, updatedSteps[i].id, 'done')
-      updateSteps(convId, assistantId, getThinkingSteps(sessionId))
-    }
+    
+    const delayMs = 600 + Math.random() * 800
+    await delay(delayMs)
+    
+    manager.updateStepStatus(sessionId, updatedSteps[i].id, 'done')
+    updateSteps(convId, assistantId, getThinkingSteps(sessionId))
   }
 
   manager.setSessionState(sessionId, 'completed')
   cleanupThinkingSession(sessionId)
-  
-  return isComplex
 }
 
 // ============================================================
@@ -1465,7 +1471,13 @@ const SecurityStatusIndicator = memo(function SecurityStatusIndicator({
 }: {
   csrfToken: string
 }) {
-  if (process.env.NODE_ENV !== 'development') return null
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (process.env.NODE_ENV !== 'development' || !mounted || !csrfToken) return null
 
   return (
     <div
@@ -1948,10 +1960,10 @@ export default function Home() {
 
       const initialStatus: ConvStatus = webSearch
         ? 'searching'
-        : deepResearch || shouldCheckComplexity
-        ? deepResearch
-          ? 'researching'
-          : 'thinking'
+        : deepResearch
+        ? 'researching'
+        : shouldCheckComplexity
+        ? 'heartbeat'
         : 'streaming'
 
       // Decide if AI should respond (smart response for team chats)
@@ -1972,9 +1984,10 @@ export default function Home() {
           : webSearch
           ? makeWebSearchSteps()
           : undefined,
-        thinkingSteps: shouldCheckComplexity ? makeThinkingSteps(text) : undefined,
+        thinkingSteps: undefined,
         isDeepResearch: deepResearch,
         isWebSearch: webSearch ?? false,
+        isEvaluatingComplexity: shouldCheckComplexity ? true : undefined,
         timestamp: Date.now(),
       }
 
@@ -2007,15 +2020,63 @@ export default function Home() {
       abortRef.current = ctrl
 
       try {
-        // ── Thinking animation ─────────────────────────────
+        // ── Thinking / Complexity flow ──────────────────────
         if (shouldCheckComplexity && !deepResearch) {
-          await animateThinkingSteps(
-            convId,
-            assistantId,
-            updateThinkingSteps,
-            text,
-            ctrl.signal
-          )
+          const checkStart = Date.now()
+          const isComplex = await evaluateComplexity(text, ctrl.signal)
+
+          if (ctrl.signal.aborted) {
+            convDispatch({ type: 'ABORT' })
+            return
+          }
+
+          // Keep heartbeat animation visible for 1.5 - 2.0 seconds (minimum total time) for ALL queries
+          const elapsed = Date.now() - checkStart
+          const targetDuration = 1500 + Math.random() * 500
+          if (elapsed < targetDuration) {
+            await delay(targetDuration - elapsed)
+          }
+
+          if (ctrl.signal.aborted) {
+            convDispatch({ type: 'ABORT' })
+            return
+          }
+
+          if (isComplex) {
+            // Smoothly transition from Evaluating (Heartbeat) to Thinking steps state
+            updateConv(
+              convId,
+              lensUpdateMessage(assistantId, m => ({
+                ...m,
+                status: 'thinking',
+                isEvaluatingComplexity: false,
+                thinkingSteps: makeThinkingSteps(text),
+              }))
+            )
+
+            // Enforce state transition: heartbeat -> thinking
+            convDispatch({ type: 'STATUS_UPDATE', status: 'thinking' })
+
+            await animateThinkingSteps(
+              convId,
+              assistantId,
+              updateThinkingSteps,
+              text,
+              ctrl.signal
+            )
+          } else {
+            // Simple query: transition directly to streaming (responding) and skip thinking phases
+            updateConv(
+              convId,
+              lensUpdateMessage(assistantId, m => ({
+                ...m,
+                status: 'streaming',
+                isEvaluatingComplexity: false,
+                thinkingStart: undefined, // Clear thinking start so it doesn't show thought time
+                thinkingSteps: undefined,
+              }))
+            )
+          }
         }
 
         if (ctrl.signal.aborted) {

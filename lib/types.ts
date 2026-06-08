@@ -1,5 +1,5 @@
 export type Role = 'user' | 'assistant'
-export type MessageStatus = 'thinking' | 'researching' | 'searching' | 'streaming' | 'done' | 'error'
+export type MessageStatus = 'heartbeat' | 'thinking' | 'researching' | 'searching' | 'streaming' | 'done' | 'error'
 
 export interface SearchSource {
   title: string
@@ -45,6 +45,7 @@ export interface Message {
   thinkingTime?: number
   imageUrl?: string // Base64 encoded image or URL
   isWebSearch?: boolean
+  isEvaluatingComplexity?: boolean
   searchSources?: SearchSource[]
   webSearchQueries?: string[]
   senderName?: string

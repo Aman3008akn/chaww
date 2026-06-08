@@ -476,7 +476,7 @@ export default function MessageBubble({
   }
   
   // Early returns for special states
-  if (message.status === 'thinking') {
+  if (message.status === 'heartbeat' || message.status === 'thinking') {
     return <ThinkingBadge message={message as Message} />
   }
   

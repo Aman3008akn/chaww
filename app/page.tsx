@@ -896,8 +896,8 @@ async function animateThinkingSteps(
   manager.updateStepStatus(sessionId, steps[0].id, 'active')
   updateSteps(convId, assistantId, getThinkingSteps(sessionId))
 
-  // Simulate understanding intent processing delay: 0.8s - 1.5s
-  const delayMsFirst = 800 + Math.random() * 700
+  // Simulate understanding intent processing delay: 0.3s - 0.6s
+  const delayMsFirst = 300 + Math.random() * 300
   await delay(delayMsFirst)
   if (signal?.aborted) {
     cleanupThinkingSession(sessionId)
@@ -925,7 +925,7 @@ async function animateThinkingSteps(
     manager.updateStepStatus(sessionId, updatedSteps[i].id, 'active')
     updateSteps(convId, assistantId, getThinkingSteps(sessionId))
     
-    const delayMs = 600 + Math.random() * 800
+    const delayMs = 200 + Math.random() * 300
     await delay(delayMs)
     
     manager.updateStepStatus(sessionId, updatedSteps[i].id, 'done')
@@ -2030,9 +2030,9 @@ export default function Home() {
             return
           }
 
-          // Keep heartbeat animation visible for 1.5 - 2.0 seconds (minimum total time) for ALL queries
+          // Keep heartbeat animation visible for 0.6 - 1.0 seconds (minimum total time) for ALL queries
           const elapsed = Date.now() - checkStart
-          const targetDuration = 1500 + Math.random() * 500
+          const targetDuration = 600 + Math.random() * 400
           if (elapsed < targetDuration) {
             await delay(targetDuration - elapsed)
           }

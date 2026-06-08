@@ -221,6 +221,103 @@ async function streamFromGemini(
 }
 
 /**
+ * Stream response from Groq API
+ */
+async function streamFromGroq(
+  messages: any[],
+  systemPrompt: string,
+  controller: ReadableStreamDefaultController,
+  encoder: TextEncoder,
+  signal: AbortSignal
+): Promise<boolean> {
+  const apiKey = process.env.GROQ_API_KEY || ''
+  if (!apiKey) return false
+
+  try {
+    console.log('Attempting to stream from Groq API...')
+    const formattedMessages = [
+      { role: 'system', content: systemPrompt },
+      ...messages.map(m => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content
+      }))
+    ]
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: formattedMessages,
+        stream: true,
+        temperature: 0.2,
+        max_tokens: 4096
+      }),
+      signal: signal.aborted ? undefined : signal
+    })
+
+    if (!response.ok) {
+      throw new Error(`Groq error: ${response.status} ${await response.text().catch(() => '')}`)
+    }
+
+    if (!response.body) throw new Error('Groq: No response body')
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let done = false
+    let buffer = ''
+
+    while (!done) {
+      if (signal.aborted) {
+        reader.cancel().catch(() => {})
+        break
+      }
+
+      const { value, done: readerDone } = await reader.read()
+      if (readerDone) {
+        done = true
+        break
+      }
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        if (trimmed.startsWith('data: ')) {
+          const dataStr = trimmed.slice(6).trim()
+          if (dataStr === '[DONE]') {
+            done = true
+            break
+          }
+
+          try {
+            const parsed = JSON.parse(dataStr)
+            const text = parsed.choices?.[0]?.delta?.content || ''
+            if (text) {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ text })}\n\n`)
+              )
+            }
+          } catch (e) {
+            // Ignore parsing error for metadata or empty tokens
+          }
+        }
+      }
+    }
+    return true
+  } catch (err: any) {
+    console.error('Groq connection failed:', err.message)
+    return false
+  }
+}
+
+/**
  * Fallback to Pollinations AI
  */
 async function streamFromPollinations(
@@ -689,17 +786,32 @@ export async function POST(req: NextRequest) {
 
           const isWebSearch = mode === 'web_search'
           
-          // ✅ CRITICAL FIX #2: Pass abort signal through the entire chain
-          const success = await streamFromGemini(
-            cleanMessages, 
-            systemPrompt, 
-            controller, 
-            encoder, 
-            req.signal, 
-            imageUrl, 
-            isWebSearch,
-            selectedModel
-          )
+          // Pass abort signal through the entire chain
+          let success = false
+          
+          if (process.env.GROQ_API_KEY) {
+            success = await streamFromGroq(
+              cleanMessages,
+              systemPrompt,
+              controller,
+              encoder,
+              req.signal
+            )
+          }
+
+          if (!success) {
+            // Fallback to Gemini if Groq is not configured or fails
+            success = await streamFromGemini(
+              cleanMessages, 
+              systemPrompt, 
+              controller, 
+              encoder, 
+              req.signal, 
+              imageUrl, 
+              isWebSearch,
+              selectedModel
+            )
+          }
 
           if (!success) {
             safeEnqueue(

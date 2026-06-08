@@ -215,7 +215,7 @@ export async function extractMemoriesWithAI(
     if (!apiKey) return []
     
     const genAI = new GoogleGenerativeAI(apiKey)
-    const modelsToTry = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
+    const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash"]
     let responseText = ""
     let lastError: any = null
 

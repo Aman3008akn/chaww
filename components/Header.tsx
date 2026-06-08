@@ -32,31 +32,6 @@ export default function Header({ onNew, onNotebooks, onTeams, currentModel, onMo
       </div>
 
       <div className="flex items-center gap-1 sm:gap-1.5">
-        {onNotebooks && (
-          <button
-            onClick={onNotebooks}
-            className="p-2 sm:p-1.5 rounded-lg hover:bg-[var(--surface)] transition-colors text-emerald-400 hover:text-emerald-300 touch-manipulation min-h-[40px] flex items-center justify-center relative group"
-            title="Knowledge Base"
-          >
-            <div className="absolute inset-0 bg-emerald-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" />
-            <Book size={16} className="relative z-10" />
-          </button>
-        )}
-        {onTeams && (
-          <button
-            onClick={onTeams}
-            className="p-2 sm:p-1.5 rounded-lg hover:bg-[var(--surface)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)] touch-manipulation min-h-[40px]"
-            title="Teams"
-          >
-            <Users size={16} />
-          </button>
-        )}
-        {currentModel && onModelChange && (
-          <ModelSelector
-            currentModel={currentModel}
-            onModelChange={onModelChange}
-          />
-        )}
         <button
           onClick={onNew}
           className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 sm:py-1.5 rounded-lg text-xs font-medium bg-[var(--surface)] border border-[var(--surface-border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition-colors touch-manipulation min-h-[40px]"
